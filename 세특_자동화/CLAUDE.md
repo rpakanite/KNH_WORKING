@@ -22,9 +22,11 @@ Claude Code는 이 값이 비어 있으면 작업을 진행하기 전에 사용�
 - MONTHLY_REPORT_FOLDER: 1fYPdAIR1UiKpU7_qQIs1Syveoinc0K_G  (Drive: DB_DRIVE_ROOT/월별 분석 보고서 —
                           5단계 월말 결산 PDF 보고서 전용 보관 폴더. 파일/폴더 명명 규칙의 "월말결산/"은
                           이 폴더를 가리킨다.)
-- USER_EMAIL           : donghun930@gmail.com  (※ 연결된 Gmail 계정은 zac95130@gmail.com — 본인 계정 맞는지 확인 필요)
-- CLASS_LIST           : 반별 시트(Google Sheets) 1개씩, DB_DRIVE_ROOT/학급명렬표/{반}반_명렬표
-                          (열: 학번, 이름). 현재 6~10반 시트 생성 완료, 학생 명단은 미기입 상태.
+- USER_EMAIL           : zac95130@gmail.com  (이 프로젝트의 Google Drive·Gmail 연동 계정. 위 폴더 ID들은
+                          모두 이 계정의 Drive 기준이며, 보고·발송 메일도 이 주소로 보낸다.)
+- CLASS_LIST           : 반별 시트(Google Sheets) 1개씩, zac95130@gmail.com 계정의 Google Drive
+                          DB_DRIVE_ROOT/학급명렬표/{반}반_명렬표 (열: 학번, 이름).
+                          6~10반 시트 생성 및 학생 명단 기입 완료 — 학번-이름 매핑은 이 시트에서 조회한다.
 - STUDENT_ID_FORMAT    : 5자리 숫자 — 1번째 자리: 학년 / 2~3번째 자리: 반 / 4~5번째 자리: 개인 번호
 ```
 
@@ -37,7 +39,8 @@ Claude Code는 이 값이 비어 있으면 작업을 진행하기 전에 사용�
   사용자가 구축한 Google Apps Script가 학생 제출 메일 첨부파일을 자동으로 Google Drive
   `STUDENT_WORK_FOLDER/{반}반/` 폴더로 옮겨 놓으면, Claude Code는 거기서부터(0단계, 차시별
   재분류) 이어받는다. 즉 0단계에서는 Gmail 도구를 사용하지 않는다.
-- 위 두 커넥터가 연결되어 있지 않다면 작업 시작 전에 사용자에게 연결을 요청할 것.
+- 위 두 커넥터는 반드시 **`zac95130@gmail.com` 계정**으로 연결되어 있어야 한다. 연결되어 있지 않거나
+  다른 계정으로 연결되어 있으면 작업을 진행하지 말고 사용자에게 해당 계정으로의 연결을 요청할 것.
 - Claude Code는 매 실행 시작 시 `LESSON_PLAN_FOLDER`, `WORKSHEET_FOLDER`, `WORKSHEET_ANSWER_FOLDER`,
   `STUDENT_WORK_FOLDER`를 Google Drive에서 열람해 **새로 추가되거나 수정된 파일**이 있는지 먼저
   확인한다. 이때 폴더 전체 내용을 매번 새로 읽지 않고, 아래 "사용량 최적화 원칙"의 로컬 매니페스트를
