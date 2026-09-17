@@ -776,8 +776,15 @@ FONT = ("'Pretendard','Apple SD Gothic Neo','Noto Sans KR','Malgun Gothic',"
 색 = {"남": ("#e8f1fd", "#8fb6ea"), "여": ("#fdeef3", "#e8a2bd"), "": ("#f2f3f5", "#c3c7cd")}
 
 
-def render_svg(settings: dict, 배치: dict, 제목: str | None = None) -> str:
-    """배치표를 SVG 그림으로 그린다(단독 파일로도 열린다)."""
+A4_가로 = (1123, 794)      # A4 가로(297×210mm)를 96dpi 픽셀로 환산한 크기
+
+
+def _draw_seatmap(settings: dict, 배치: dict, 제목: str | None = None,
+                  seat_h: int | None = None, gap: int | None = None,
+                  바닥문구: bool = True) -> tuple[list[str], int, int]:
+    """배치표 도형들과 그 원본 크기(너비, 높이)를 만든다."""
+    SEAT_H = seat_h or globals()["SEAT_H"]
+    GAP = gap or globals()["GAP"]
     rows, cols = grid_size(settings)
     막힌자리 = blocked_seats(settings)
     자리별 = {}
@@ -788,16 +795,13 @@ def render_svg(settings: dict, 배치: dict, 제목: str | None = None) -> str:
 
     격자폭 = cols * SEAT_W + (cols - 1) * GAP
     머리높이 = 128
-    바닥높이 = 46
+    바닥높이 = 46 if 바닥문구 else 24
     너비 = 격자폭 + PAD * 2
     높이 = 머리높이 + rows * SEAT_H + (rows - 1) * GAP + 바닥높이
     제목 = 제목 or "자리 배치표"
     오늘 = date.today().isoformat()
 
     p: list[str] = []
-    p.append(f'<svg xmlns="http://www.w3.org/2000/svg" width="{너비}" height="{높이}" '
-             f'viewBox="0 0 {너비} {높이}" font-family="{FONT}">')
-    p.append(f'<rect width="{너비}" height="{높이}" fill="#ffffff"/>')
     p.append(f'<text x="{너비/2:.0f}" y="38" text-anchor="middle" font-size="24" '
              f'font-weight="700" fill="#1f2328">{_esc(제목)}</text>')
     p.append(f'<text x="{너비/2:.0f}" y="60" text-anchor="middle" font-size="13" '
@@ -829,20 +833,73 @@ def render_svg(settings: dict, 배치: dict, 제목: str | None = None) -> str:
                      f'fill="{바탕}" stroke="{테두리}"/>')
             if 학생 is None:
                 continue
-            p.append(f'<text x="{x + SEAT_W/2:.0f}" y="{y + 30:.0f}" text-anchor="middle" '
+            가운데 = y + SEAT_H / 2
+            p.append(f'<text x="{x + SEAT_W/2:.0f}" y="{가운데 - 8:.0f}" text-anchor="middle" '
                      f'font-size="13" fill="#6b7280">{_esc(학생["번호"])}번</text>')
-            p.append(f'<text x="{x + SEAT_W/2:.0f}" y="{y + 55:.0f}" text-anchor="middle" '
+            p.append(f'<text x="{x + SEAT_W/2:.0f}" y="{가운데 + 17:.0f}" text-anchor="middle" '
                      f'font-size="19" font-weight="600" fill="#1f2328">'
                      f'{_esc(학생["이름"])}</text>')
         p.append(f'<text x="{PAD - 10}" y="{y + SEAT_H/2 + 5:.0f}" text-anchor="end" '
                  f'font-size="12" fill="#9aa4b2">{r}행</text>')
 
-    바닥y = 높이 - 18
-    창가 = (settings.get("교실") or {}).get("창가", "왼쪽")
-    p.append(f'<text x="{PAD}" y="{바닥y}" font-size="12" fill="#9aa4b2">'
-             f'← {_esc(창가)}쪽(창가) · 위쪽이 교탁 방향 · 행 번호는 왼쪽 숫자</text>')
-    p.append('</svg>')
-    return "\n".join(p)
+    if 바닥문구:
+        창가 = (settings.get("교실") or {}).get("창가", "왼쪽")
+        p.append(f'<text x="{PAD}" y="{높이 - 18}" font-size="12" fill="#9aa4b2">'
+                 f'← {_esc(창가)}쪽(창가) · 위쪽이 교탁 방향 · 행 번호는 왼쪽 숫자</text>')
+    return p, 너비, 높이
+
+
+def render_svg(settings: dict, 배치: dict, 제목: str | None = None,
+               용지: str | None = None) -> str:
+    """배치표를 SVG 그림으로 그린다(단독 파일로도 열린다).
+
+    용지="A4가로" 면 A4 가로 한 장에 꽉 차도록 맞춰서 그린다.
+    """
+    도형, 너비, 높이 = _draw_seatmap(settings, 배치, 제목)
+    if 용지 == "A4가로":
+        W, H = A4_가로
+        여백 = 28
+        # 용지를 가장 넓게 쓰는 자리 칸 높이·간격을 고른다(세로 여백 줄이기)
+        최적 = None
+        for sh, gp in ((SEAT_H, GAP), (92, 18), (108, 20), (124, 24), (140, 26)):
+            후보도형, w2, h2 = _draw_seatmap(settings, 배치, 제목, sh, gp, 바닥문구=False)
+            k = min((W - 여백 * 2) / w2, (H - 여백 * 2) / h2)
+            덮는넓이 = (w2 * k) * (h2 * k)
+            if 최적 is None or 덮는넓이 > 최적[0]:
+                최적 = (덮는넓이, 후보도형, w2, h2, k)
+        _, 도형, 너비, 높이, 배율 = 최적
+        tx = (W - 너비 * 배율) / 2
+        ty = (H - 높이 * 배율) / 2
+        머리 = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
+               f'viewBox="0 0 {W} {H}" font-family="{FONT}">',
+               f'<rect width="{W}" height="{H}" fill="#ffffff"/>',
+               f'<g transform="translate({tx:.1f},{ty:.1f}) scale({배율:.4f})">']
+        return "\n".join(머리 + 도형 + ['</g>', '</svg>'])
+    머리 = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{너비}" height="{높이}" '
+           f'viewBox="0 0 {너비} {높이}" font-family="{FONT}">',
+           f'<rect width="{너비}" height="{높이}" fill="#ffffff"/>']
+    return "\n".join(머리 + 도형 + ['</svg>'])
+
+
+def render_a4_html(settings: dict, 배치: dict, 제목: str | None = None) -> str:
+    """조건 목록 없이 배치표만 담은 A4 가로 1장짜리 HTML(인쇄·PDF 저장용)."""
+    svg = render_svg(settings, 배치, 제목, 용지="A4가로")
+    return f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>{_esc(제목 or '자리 배치표')}</title>
+<style>
+  @page {{ size: A4 landscape; margin: 0; }}
+  html, body {{ margin: 0; padding: 0; background: #fff; }}
+  svg {{ display: block; width: 100%; height: auto; }}
+</style>
+</head>
+<body>
+{svg}
+</body>
+</html>
+"""
 
 
 def render_html(settings: dict, 배치: dict, 제목: str | None = None,
@@ -906,7 +963,7 @@ def render_html(settings: dict, 배치: dict, 제목: str | None = None,
 
 def write_outputs(settings: dict, 배치: dict, out_dir: Path,
                   제목: str | None = None, stem: str | None = None,
-                  미충족희망: list[dict] | None = None) -> dict:
+                  미충족희망: list[dict] | None = None, A4: bool = True) -> dict:
     """배치표를 HTML·SVG 파일로 저장하고 경로를 돌려준다."""
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = stem or "배치표_" + datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -914,4 +971,11 @@ def write_outputs(settings: dict, 배치: dict, out_dir: Path,
     svg_path = out_dir / f"{stem}.svg"
     html_path.write_text(render_html(settings, 배치, 제목, 미충족희망), encoding="utf-8")
     svg_path.write_text(render_svg(settings, 배치, 제목), encoding="utf-8")
-    return {"html": html_path, "svg": svg_path}
+    결과 = {"html": html_path, "svg": svg_path}
+    if A4:
+        a4_html = out_dir / f"{stem}_A4.html"
+        a4_svg = out_dir / f"{stem}_A4.svg"
+        a4_html.write_text(render_a4_html(settings, 배치, 제목), encoding="utf-8")
+        a4_svg.write_text(render_svg(settings, 배치, 제목, 용지="A4가로"), encoding="utf-8")
+        결과.update({"A4_html": a4_html, "A4_svg": a4_svg})
+    return 결과

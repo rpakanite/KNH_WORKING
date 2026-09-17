@@ -253,6 +253,18 @@ def test_그림_출력():
     assert "<!DOCTYPE html>" in html and "적용된 배치 조건" in html
 
 
+def test_A4_가로_출력():
+    학생 = _이름학생()
+    s = _설정(가로=6, 세로=4, 학생=학생)
+    배치 = E.solve(s, seed=5)
+    svg = E.render_svg(s, 배치, "테스트", 용지="A4가로")
+    assert f'width="{E.A4_가로[0]}"' in svg and f'height="{E.A4_가로[1]}"' in svg
+    assert "가영" in svg and "<g transform=" in svg
+    html = E.render_a4_html(s, 배치, "테스트")
+    assert "size: A4 landscape" in html
+    assert "적용된 배치 조건" not in html, "A4 출력에는 조건 목록을 넣지 않는다"
+
+
 def test_파일_저장(tmp_dir=None):
     import tempfile
     학생 = _이름학생()
@@ -261,6 +273,7 @@ def test_파일_저장(tmp_dir=None):
     with tempfile.TemporaryDirectory() as d:
         경로 = E.write_outputs(s, 배치, Path(d), "테스트 반")
         assert 경로["html"].exists() and 경로["svg"].exists()
+        assert 경로["A4_html"].exists() and 경로["A4_svg"].exists()
         assert "테스트 반" in 경로["html"].read_text(encoding="utf-8")
 
 

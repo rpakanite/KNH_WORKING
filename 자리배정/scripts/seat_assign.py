@@ -228,6 +228,9 @@ def 배치보여주기(settings: dict, 배치: dict, 제목: str | None = None,
     경로 = E.write_outputs(settings, 배치, OUT_DIR, 제목, 미충족희망=미충족희망)
     알림()
     알림(f"그림 파일: {보기좋은경로(경로['html'])}  /  {보기좋은경로(경로['svg'])}")
+    if 경로.get("A4_html"):
+        알림(f"A4 가로(조건 목록 없이 배치표만): {보기좋은경로(경로['A4_html'])}  /  "
+             f"{보기좋은경로(경로['A4_svg'])}")
     return 경로
 
 
