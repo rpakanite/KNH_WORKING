@@ -253,6 +253,32 @@ def test_그림_출력():
     assert "<!DOCTYPE html>" in html and "적용된 배치 조건" in html
 
 
+def test_교사시점이_기본이고_행열이_뒤집힌다():
+    학생 = _이름학생()
+    s = _설정(가로=6, 세로=4, 학생=학생)
+    assert s["교실"]["보기"] == "교사시점"
+    행순서, 열순서, 교탁아래 = E.표시순서(s)
+    assert 행순서 == [4, 3, 2, 1] and 열순서 == [6, 5, 4, 3, 2, 1] and 교탁아래
+
+    글 = E.render_text(s, E.solve(s, seed=1))
+    줄들 = 글.splitlines()
+    자리줄 = [l for l in 줄들 if "행(" in l or ("행" in l and "│" in l)]
+    assert "4행(뒤)" in 자리줄[0] and "1행(앞)" in 자리줄[-1]
+    assert 줄들[0].index("6열") < 줄들[0].index("1열"), "왼쪽이 마지막 열이어야 한다"
+    assert 줄들.index([l for l in 줄들 if "교 탁" in l][0]) > 줄들.index(자리줄[0]), \
+        "교탁은 그림 아래쪽에 있어야 한다"
+
+
+def test_학생시점으로_되돌릴_수_있다():
+    학생 = _이름학생()
+    s = _설정(가로=6, 세로=4, 학생=학생)
+    s["교실"]["보기"] = "학생시점"
+    행순서, 열순서, 교탁아래 = E.표시순서(s)
+    assert 행순서 == [1, 2, 3, 4] and 열순서 == [1, 2, 3, 4, 5, 6] and not 교탁아래
+    글 = E.render_text(s, E.solve(s, seed=1))
+    assert "교 탁" in 글.splitlines()[0]
+
+
 def test_A4_가로_출력():
     학생 = _이름학생()
     s = _설정(가로=6, 세로=4, 학생=학생)

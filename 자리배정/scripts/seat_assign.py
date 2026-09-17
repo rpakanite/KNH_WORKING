@@ -293,6 +293,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--조건비우기", action="store_true")
     ap.add_argument("--조건목록", action="store_true")
     ap.add_argument("--창가", choices=["왼쪽", "오른쪽"], help="창가가 어느 쪽인지")
+    ap.add_argument("--보기", choices=["교사시점", "학생시점"],
+                    help="배치표를 그리는 방향 (기본: 교사시점 — 교탁에서 학생을 바라본 방향)")
     ap.add_argument("--배치", action="store_true", help="질문 없이 배치를 만들고 저장한다")
     ap.add_argument("--씨드", type=int, metavar="N", help="같은 값이면 같은 배치가 나온다")
     ap.add_argument("--제목", metavar="제목", help="배치표 제목 (예: 3학년 7반 2학기)")
@@ -328,6 +330,9 @@ def main(argv: list[str] | None = None) -> int:
         변경 = True
     if args.창가:
         settings.setdefault("교실", {})["창가"] = args.창가
+        변경 = True
+    if args.보기:
+        settings.setdefault("교실", {})["보기"] = args.보기
         변경 = True
     if args.학생:
         글 = sys.stdin.read() if args.학생 == "-" else \

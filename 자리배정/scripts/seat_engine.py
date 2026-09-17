@@ -53,7 +53,8 @@ def nfc(text: str) -> str:
 def default_settings() -> dict:
     return {
         "격자": None,                 # {"가로": C, "세로": R, "설정일": "YYYY-MM-DD"}
-        "교실": {"창가": "왼쪽", "분단열수": DEFAULT_BLOCK_WIDTH, "빈자리": "뒤쪽"},
+        "교실": {"창가": "왼쪽", "분단열수": DEFAULT_BLOCK_WIDTH, "빈자리": "뒤쪽",
+                "보기": "교사시점"},
         "학생": [],                   # [{"번호": 1, "이름": "홍길동", "성별": "남"}]
         "조건": [],                   # 아래 parse_rule 이 만드는 dict 목록
         "조건_수정일": None,
@@ -736,6 +737,20 @@ def seat_labels(settings: dict, 배치: dict) -> dict:
     return labels
 
 
+def 표시순서(settings: dict) -> tuple[list[int], list[int], bool]:
+    """그림에 찍을 행·열 순서와 교탁을 아래에 둘지 여부.
+
+    교사시점(기본) = 교탁에 서서 학생을 바라본 방향.
+      위에서 아래로 뒷줄→앞줄, 왼쪽에서 오른쪽으로 마지막 열→1열, 교탁은 아래.
+    학생시점 = 학생이 칠판을 바라본 방향(1행이 맨 위, 1열이 맨 왼쪽, 교탁은 위).
+    """
+    rows, cols = grid_size(settings)
+    보기 = (settings.get("교실") or {}).get("보기", "교사시점")
+    if 보기 == "학생시점":
+        return list(range(1, rows + 1)), list(range(1, cols + 1)), False
+    return list(range(rows, 0, -1)), list(range(cols, 0, -1)), True
+
+
 def render_text(settings: dict, 배치: dict) -> str:
     """터미널·채팅에 그대로 붙일 수 있는 배치표."""
     rows, cols = grid_size(settings)
@@ -743,25 +758,32 @@ def render_text(settings: dict, 배치: dict) -> str:
     막힌자리 = blocked_seats(settings)
     폭 = max([8] + [_w(v) + 2 for v in labels.values()])
 
+    행순서, 열순서, 교탁아래 = 표시순서(settings)
     줄들: list[str] = []
     전체폭 = cols * 폭 + (cols + 1)
     교탁 = "[ 교 탁 ]"
-    줄들.append(_pad(교탁, 전체폭))
-    줄들.append(_pad("─" * _w(교탁), 전체폭))
-    줄들.append("".join(" " + _pad(f"{c}열", 폭) for c in range(1, cols + 1)))
+    def 교탁그리기() -> list[str]:
+        return [_pad(교탁, 전체폭), _pad("─" * _w(교탁), 전체폭)]
+
+    if not 교탁아래:
+        줄들 += 교탁그리기()
+    줄들.append("".join(" " + _pad(f"{c}열", 폭) for c in 열순서))
     줄들.append("┌" + "┬".join("─" * 폭 for _ in range(cols)) + "┐")
-    for r in range(1, rows + 1):
+    for i, r in enumerate(행순서):
         칸들 = []
-        for c in range(1, cols + 1):
+        for c in 열순서:
             if (r, c) in 막힌자리:
                 칸들.append(_pad("✕", 폭))
             else:
                 칸들.append(_pad(labels.get((r, c), ""), 폭))
         꼬리 = f"  {r}행" + ("(앞)" if r == 1 else "(뒤)" if r == rows else "")
         줄들.append("│" + "│".join(칸들) + "│" + 꼬리)
-        if r < rows:
+        if i < len(행순서) - 1:
             줄들.append("├" + "┼".join("─" * 폭 for _ in range(cols)) + "┤")
     줄들.append("└" + "┴".join("─" * 폭 for _ in range(cols)) + "┘")
+    if 교탁아래:
+        줄들 += 교탁그리기()
+        줄들.append(_pad("(교사 시점 — 교탁에서 학생을 바라본 방향)", 전체폭))
     return "\n".join(줄들)
 
 
@@ -793,11 +815,14 @@ def _draw_seatmap(settings: dict, 배치: dict, 제목: str | None = None,
         if 자리:
             자리별[(int(자리[0]), int(자리[1]))] = s
 
+    행순서, 열순서, 교탁아래 = 표시순서(settings)
+    교탁폭, 교탁높이 = 150, 34
     격자폭 = cols * SEAT_W + (cols - 1) * GAP
-    머리높이 = 128
-    바닥높이 = 46 if 바닥문구 else 24
+    머리높이 = 84 if 교탁아래 else 128
+    바닥높이 = (46 if 바닥문구 else 24) + (교탁높이 + 22 if 교탁아래 else 0)
     너비 = 격자폭 + PAD * 2
-    높이 = 머리높이 + rows * SEAT_H + (rows - 1) * GAP + 바닥높이
+    격자높이 = rows * SEAT_H + (rows - 1) * GAP
+    높이 = 머리높이 + 격자높이 + 바닥높이
     제목 = 제목 or "자리 배치표"
     오늘 = date.today().isoformat()
 
@@ -807,18 +832,18 @@ def _draw_seatmap(settings: dict, 배치: dict, 제목: str | None = None,
     p.append(f'<text x="{너비/2:.0f}" y="60" text-anchor="middle" font-size="13" '
              f'fill="#6b7280">{cols}열 × {rows}행 · {오늘}</text>')
 
-    # 교탁
-    교탁폭, 교탁높이 = 150, 34
+    # 교탁 — 교사 시점이면 그림 아래쪽(교사가 서는 쪽)에 둔다
     교탁x = (너비 - 교탁폭) / 2
-    p.append(f'<rect x="{교탁x:.0f}" y="78" width="{교탁폭}" height="{교탁높이}" rx="8" '
-             f'fill="#eef2f7" stroke="#9aa4b2"/>')
-    p.append(f'<text x="{너비/2:.0f}" y="{78 + 22}" text-anchor="middle" font-size="15" '
+    교탁y = (머리높이 + 격자높이 + 14) if 교탁아래 else 78
+    p.append(f'<rect x="{교탁x:.0f}" y="{교탁y:.0f}" width="{교탁폭}" height="{교탁높이}" '
+             f'rx="8" fill="#eef2f7" stroke="#9aa4b2"/>')
+    p.append(f'<text x="{너비/2:.0f}" y="{교탁y + 22:.0f}" text-anchor="middle" font-size="15" '
              f'fill="#374151" font-weight="600">교 탁 (칠판)</text>')
 
-    for r in range(1, rows + 1):
-        y = 머리높이 + (r - 1) * (SEAT_H + GAP)
-        for c in range(1, cols + 1):
-            x = PAD + (c - 1) * (SEAT_W + GAP)
+    for i, r in enumerate(행순서):
+        y = 머리높이 + i * (SEAT_H + GAP)
+        for j, c in enumerate(열순서):
+            x = PAD + j * (SEAT_W + GAP)
             if (r, c) in 막힌자리:
                 p.append(f'<rect x="{x}" y="{y}" width="{SEAT_W}" height="{SEAT_H}" rx="10" '
                          f'fill="#fafafa" stroke="#e5e7eb" stroke-dasharray="6 5"/>')
@@ -844,8 +869,12 @@ def _draw_seatmap(settings: dict, 배치: dict, 제목: str | None = None,
 
     if 바닥문구:
         창가 = (settings.get("교실") or {}).get("창가", "왼쪽")
+        안내 = (f"교사 시점(교탁에서 학생을 바라본 방향) · 아래쪽이 교탁 · "
+              f"오른쪽 끝이 1열({_esc(창가)}쪽 창가)"
+              if 교탁아래 else
+              f"학생 시점 · 위쪽이 교탁 · 왼쪽 끝이 1열({_esc(창가)}쪽 창가)")
         p.append(f'<text x="{PAD}" y="{높이 - 18}" font-size="12" fill="#9aa4b2">'
-                 f'← {_esc(창가)}쪽(창가) · 위쪽이 교탁 방향 · 행 번호는 왼쪽 숫자</text>')
+                 f'{안내}</text>')
     return p, 너비, 높이
 
 
