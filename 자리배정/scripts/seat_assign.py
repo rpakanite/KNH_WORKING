@@ -199,9 +199,9 @@ def 조건단계(settings: dict) -> None:
         조건출력(settings)
 
 
-def 배치생성(settings: dict, seed: int | None = None) -> dict:
+def 배치생성(settings: dict, seed: int | None = None) -> tuple[dict, list]:
     try:
-        return E.solve(settings, seed=seed)
+        return E.solve_detail(settings, seed=seed)
     except E.SeatError as err:
         알림()
         알림(f"⚠ {err}")
@@ -215,10 +215,17 @@ def 배치생성(settings: dict, seed: int | None = None) -> dict:
         raise SystemExit(1)
 
 
-def 배치보여주기(settings: dict, 배치: dict, 제목: str | None = None) -> dict:
+def 배치보여주기(settings: dict, 배치: dict, 제목: str | None = None,
+              미충족희망: list | None = None) -> dict:
     제목줄("자리 배치표")
     알림(E.render_text(settings, 배치))
-    경로 = E.write_outputs(settings, 배치, OUT_DIR, 제목)
+    미충족희망 = 미충족희망 or []
+    if 미충족희망:
+        알림()
+        알림("※ 자리가 모자라 이번 배치에서 못 지킨 희망 조건:")
+        for rule in 미충족희망:
+            알림(f"  · {E.describe_rule(rule)}")
+    경로 = E.write_outputs(settings, 배치, OUT_DIR, 제목, 미충족희망=미충족희망)
     알림()
     알림(f"그림 파일: {보기좋은경로(경로['html'])}  /  {보기좋은경로(경로['svg'])}")
     return 경로
@@ -253,6 +260,8 @@ def 조건도움말() -> str:
   · 홍길동 앞에서 2줄 이내
   · 홍길동 뒷자리 / 홍길동 맨뒤
   · 홍길동 왼쪽 / 오른쪽 / 가운데 / 창가 / 복도쪽
+  · 홍길동 2행 / 홍길동 1열        → 그 줄·그 열에 배치
+  · 이채현 1열 희망               → 가능하면 지키는 '희망' 조건(다 못 지키면 알려 줌)
   · 홍길동 맨뒤 금지             → 해당 영역 배치 금지
   · 홍길동 김철수 짝꿍           → 좌우 옆자리로 붙이기
   · 홍길동 김철수 분리           → 기본 2칸 이상 떨어뜨리기
@@ -368,8 +377,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- 5단계: 배치 그림 + 수정 여부 ------------------------------------
     씨드 = args.씨드
-    배치 = 배치생성(settings, seed=씨드)
-    배치보여주기(settings, 배치, args.제목)
+    배치, 미충족 = 배치생성(settings, seed=씨드)
+    배치보여주기(settings, 배치, args.제목, 미충족)
 
     if 대화가능() and not args.배치:
         while 예아니오("배치를 수정할까요?"):
@@ -378,16 +387,16 @@ def main(argv: list[str] | None = None) -> int:
             선택 = 물음("  선택: ", "0")
             if 선택 == "1":
                 씨드 = None if 씨드 is None else 씨드 + 1
-                배치 = 배치생성(settings, seed=씨드)
+                배치, 미충족 = 배치생성(settings, seed=씨드)
             elif 선택 == "2":
                 조건단계(settings)
                 E.save_settings(SETTINGS_PATH, settings)
-                배치 = 배치생성(settings, seed=씨드)
+                배치, 미충족 = 배치생성(settings, seed=씨드)
             elif 선택 == "3":
                 자리맞바꾸기(settings, 배치)
             else:
                 break
-            배치보여주기(settings, 배치, args.제목)
+            배치보여주기(settings, 배치, args.제목, 미충족)
 
     # --- 6단계: 확정 -----------------------------------------------------
     확정단계(settings, 배치)

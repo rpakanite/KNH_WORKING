@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import random
 import re
@@ -30,7 +31,8 @@ GENDER_ALIASES = {
     "여": "여", "녀": "여", "여자": "여", "f": "여", "F": "여", "2": "여",
 }
 
-RULE_KINDS = ("고정", "영역", "금지", "짝꿍", "근처", "분리", "분단분리", "남녀짝", "빈자리")
+RULE_KINDS = ("고정", "영역", "금지", "희망", "짝꿍", "근처", "분리", "분단분리",
+              "남녀짝", "빈자리")
 
 
 class RuleError(ValueError):
@@ -218,6 +220,7 @@ def parse_rule(line: str, 이름들: list[str]) -> dict:
 
     text = 원문.replace(" ", "")
     대상 = _names_in(원문, 이름들)
+    희망 = bool(re.search(r"(희망|원함|원한다|원해|선호|가능하면|되도록|웬만하면)", text))
 
     def done(rule: dict) -> dict:
         rule["원문"] = 원문
@@ -259,15 +262,19 @@ def parse_rule(line: str, 이름들: list[str]) -> dict:
             거리 = max(1, int(d.group(1)))
         return done({"종류": "분리", "대상들": 대상, "최소거리": 거리})
 
-    # 앞/뒤/좌/우 영역 (금지 여부 포함)
+    # 앞/뒤/좌/우 영역 (금지·희망 여부 포함)
     금지 = bool(re.search(r"(금지|안됨|안돼|하지마|피함|말것|말기|제외)", text))
+
+    def 영역종류() -> str:
+        return "금지" if 금지 else ("희망" if 희망 else "영역")
+
     for 낱말, (축, a, b) in _POS_WORDS.items():
         key = 낱말.replace(" ", "")
         if key in text:
             if not 대상:
                 raise RuleError(f"'{낱말}' 조건의 대상 학생을 찾지 못했습니다.")
             줄수 = re.search(r"(\d+)(?:줄|행|번째줄)", text)
-            rule: dict = {"종류": "금지" if 금지 else "영역", "대상": 대상[0]}
+            rule: dict = {"종류": 영역종류(), "대상": 대상[0]}
             if 축 == "행":
                 if 줄수 and a > 0:
                     rule["행범위"] = [1, int(줄수.group(1))]
@@ -283,11 +290,22 @@ def parse_rule(line: str, 이름들: list[str]) -> dict:
     if re.search(r"창(가|측|쪽)", text):
         if not 대상:
             raise RuleError("창가 조건의 대상 학생을 찾지 못했습니다.")
-        return done({"종류": "영역", "대상": 대상[0], "열범위": "창가"})
+        return done({"종류": 영역종류(), "대상": 대상[0], "열범위": "창가"})
     if re.search(r"복도(쪽|측)?", text):
         if not 대상:
             raise RuleError("복도 조건의 대상 학생을 찾지 못했습니다.")
-        return done({"종류": "영역", "대상": 대상[0], "열범위": "복도"})
+        return done({"종류": 영역종류(), "대상": 대상[0], "열범위": "복도"})
+
+    # 'N열' · 'N행' 단독 표기 (예: 이채현 1열 희망 / 김철수 2행)
+    열만 = re.search(r"(\d+)열", text)
+    행만 = re.search(r"(\d+)행", text)
+    if (열만 or 행만) and 대상:
+        rule = {"종류": 영역종류(), "대상": 대상[0]}
+        if 행만:
+            rule["행범위"] = [int(행만.group(1))] * 2
+        if 열만:
+            rule["열범위"] = [int(열만.group(1))] * 2
+        return done(rule)
 
     raise RuleError(f"해석하지 못한 조건입니다: {원문}")
 
@@ -297,8 +315,8 @@ def describe_rule(rule: dict) -> str:
     k = rule.get("종류")
     if k == "고정":
         return f"{rule['대상']} → {rule['행']}행 {rule['열']}열 고정"
-    if k in ("영역", "금지"):
-        말머리 = "금지" if k == "금지" else "배치"
+    if k in ("영역", "금지", "희망"):
+        말머리 = {"금지": "금지", "희망": "희망(가능하면)"}.get(k, "배치")
         조각 = []
         if rule.get("행범위"):
             조각.append(_row_text(rule["행범위"]))
@@ -458,6 +476,8 @@ def build_problem(settings: dict, rules: list[dict] | None = None,
     for rule in rules:
         k = rule.get("종류")
         if k == "빈자리":
+            continue
+        if k == "희망":        # 소프트 조건 — solve_detail 이 따로 처리한다
             continue
         if k == "남녀짝":
             gender_pair = True
@@ -637,9 +657,47 @@ def solve(settings: dict, rules: list[dict] | None = None, seed: int | None = No
     raise SeatError("조건을 모두 만족하는 배치를 찾지 못했습니다.")
 
 
+def solve_detail(settings: dict, rules: list[dict] | None = None, seed: int | None = None,
+                 restarts: int = 40, node_limit: int = 20000) -> tuple[dict, list[dict]]:
+    """배치와 '들어주지 못한 희망 조건' 목록을 함께 돌려준다.
+
+    희망(소프트) 조건은 가능한 한 많이 지키도록, 하나씩 줄여 가며 시도한다.
+    """
+    실제조건 = settings.get("조건", []) if rules is None else rules
+    희망들 = [r for r in 실제조건 if r.get("종류") == "희망"]
+    기본조건 = [r for r in 실제조건 if r.get("종류") != "희망"]
+    if not 희망들:
+        return solve(settings, 기본조건, seed, restarts, node_limit), []
+
+    def 굳히기(wish: dict) -> dict:
+        하드 = dict(wish)
+        하드["종류"] = "영역"
+        return 하드
+
+    n = len(희망들)
+    후보들: list[tuple[int, ...]] = []
+    if n <= 10:
+        for k in range(n, -1, -1):
+            후보들.extend(itertools.combinations(range(n), k))
+    else:                                   # 희망이 아주 많으면 뒤에서부터 하나씩 포기
+        후보들 = [tuple(range(k)) for k in range(n, -1, -1)]
+
+    for 뽑은것 in 후보들:
+        하드조건 = 기본조건 + [굳히기(희망들[i]) for i in 뽑은것]
+        마지막 = len(뽑은것) == 0
+        try:
+            배치 = solve(settings, 하드조건, seed,
+                        restarts if 마지막 else max(6, restarts // 4),
+                        node_limit)
+        except SeatError:
+            continue
+        return 배치, [희망들[i] for i in range(n) if i not in 뽑은것]
+    raise SeatError("희망 조건을 모두 포기해도 배치를 만들 수 없습니다. 다른 조건을 확인해 주세요.")
+
+
 def diagnose(settings: dict, seed: int | None = None) -> list[dict]:
     """배치가 불가능할 때, 하나만 빼면 풀리는 '충돌 의심 조건'을 찾는다."""
-    rules = list(settings.get("조건") or [])
+    rules = [r for r in (settings.get("조건") or []) if r.get("종류") != "희망"]
     충돌: list[dict] = []
     for i in range(len(rules)):
         남긴조건 = rules[:i] + rules[i + 1:]
@@ -783,11 +841,21 @@ def render_svg(settings: dict, 배치: dict, 제목: str | None = None) -> str:
     return "\n".join(p)
 
 
-def render_html(settings: dict, 배치: dict, 제목: str | None = None) -> str:
+def render_html(settings: dict, 배치: dict, 제목: str | None = None,
+                미충족희망: list[dict] | None = None) -> str:
     """SVG 배치표 + 적용된 조건 목록을 담은 인쇄용 HTML."""
     svg = render_svg(settings, 배치, 제목)
     조건들 = settings.get("조건") or []
-    항목 = "\n".join(f"      <li>{_esc(describe_rule(r))}</li>" for r in 조건들) \
+    미충족희망 = 미충족희망 or []
+    못지킨 = {json.dumps(r, ensure_ascii=False, sort_keys=True) for r in 미충족희망}
+
+    def 표시(r: dict) -> str:
+        본문 = _esc(describe_rule(r))
+        if json.dumps(r, ensure_ascii=False, sort_keys=True) in 못지킨:
+            return f'{본문} <span class="miss">— 이번 배치에서는 못 지킴</span>'
+        return 본문
+
+    항목 = "\n".join(f"      <li>{표시(r)}</li>" for r in 조건들) \
         or "      <li>등록된 조건 없음</li>"
     rows, cols = grid_size(settings)
     제목 = 제목 or "자리 배치표"
@@ -807,6 +875,7 @@ def render_html(settings: dict, 배치: dict, 제목: str | None = None) -> str:
   h2 {{ font-size: 16px; margin: 0 0 10px; }}
   ul {{ margin: 0; padding-left: 20px; line-height: 1.8; font-size: 14px; }}
   .meta {{ color: #6b7280; font-size: 13px; }}
+  .miss {{ color: #b4483f; font-weight: 600; }}
   svg {{ max-width: 100%; height: auto; }}
   @media print {{ body {{ background: #fff; padding: 0; }}
                   .card {{ border: none; padding: 0; }} }}
@@ -832,12 +901,13 @@ def render_html(settings: dict, 배치: dict, 제목: str | None = None) -> str:
 
 
 def write_outputs(settings: dict, 배치: dict, out_dir: Path,
-                  제목: str | None = None, stem: str | None = None) -> dict:
+                  제목: str | None = None, stem: str | None = None,
+                  미충족희망: list[dict] | None = None) -> dict:
     """배치표를 HTML·SVG 파일로 저장하고 경로를 돌려준다."""
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = stem or "배치표_" + datetime.now().strftime("%Y%m%d_%H%M%S")
     html_path = out_dir / f"{stem}.html"
     svg_path = out_dir / f"{stem}.svg"
-    html_path.write_text(render_html(settings, 배치, 제목), encoding="utf-8")
+    html_path.write_text(render_html(settings, 배치, 제목, 미충족희망), encoding="utf-8")
     svg_path.write_text(render_svg(settings, 배치, 제목), encoding="utf-8")
     return {"html": html_path, "svg": svg_path}
