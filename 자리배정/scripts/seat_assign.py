@@ -296,6 +296,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--보기", choices=["교사시점", "학생시점"],
                     help="배치표를 그리는 방향 (기본: 교사시점 — 교탁에서 학생을 바라본 방향)")
     ap.add_argument("--배치", action="store_true", help="질문 없이 배치를 만들고 저장한다")
+    ap.add_argument("--최소수정", action="store_true",
+                    help="지난 배치를 최대한 유지한 채 어긋난 조건만 고친다")
+    ap.add_argument("--교환", action="append", default=[], metavar="\"이름1 이름2\"",
+                    help="지난 배치에서 두 학생 자리를 맞바꾼다(--최소수정 과 함께 사용)")
     ap.add_argument("--씨드", type=int, metavar="N", help="같은 값이면 같은 배치가 나온다")
     ap.add_argument("--제목", metavar="제목", help="배치표 제목 (예: 3학년 7반 2학기)")
     ap.add_argument("--상태", action="store_true", help="저장된 설정을 보여 준다")
@@ -385,7 +389,28 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- 5단계: 배치 그림 + 수정 여부 ------------------------------------
     씨드 = args.씨드
-    배치, 미충족 = 배치생성(settings, seed=씨드)
+    바뀐사람 = []
+    if args.최소수정 or args.교환:
+        이전 = (settings.get("최근배치") or {}).get("자리")
+        if not 이전:
+            알림("지난 배치 기록이 없어 처음부터 배치합니다.")
+            배치, 미충족 = 배치생성(settings, seed=씨드)
+        else:
+            기존배치 = {이름: tuple(자리) for 이름, 자리 in 이전.items()}
+            이름들 = [x["이름"] for x in settings["학생"]]
+            for 짝 in args.교환:
+                고른이름 = [n for n in 이름들 if n in 짝]
+                if len(고른이름) != 2:
+                    알림(f"  ! 교환할 두 학생을 찾지 못했습니다: {짝}")
+                    return 2
+                a, b = 고른이름
+                기존배치[a], 기존배치[b] = 기존배치[b], 기존배치[a]
+                알림(f"교환: {a} ↔ {b}")
+            배치, 미충족, 바뀐사람 = E.repair_detail(settings, 기존배치, seed=씨드)
+            제목줄("지난 배치에서 바뀐 자리")
+            알림(", ".join(바뀐사람) if 바뀐사람 else "(교환 외에 옮긴 학생 없음)")
+    else:
+        배치, 미충족 = 배치생성(settings, seed=씨드)
     배치보여주기(settings, 배치, args.제목, 미충족)
 
     if 대화가능() and not args.배치:

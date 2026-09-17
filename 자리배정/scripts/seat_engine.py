@@ -1008,3 +1008,166 @@ def write_outputs(settings: dict, 배치: dict, out_dir: Path,
         a4_svg.write_text(render_svg(settings, 배치, 제목, 용지="A4가로"), encoding="utf-8")
         결과.update({"A4_html": a4_html, "A4_svg": a4_svg})
     return 결과
+
+
+# ------------------------------------------------- 기존 배치 최소 수정 --
+
+def _희망도메인(settings: dict, rules: list[dict], seats: list) -> dict:
+    """희망 조건별로 앉을 수 있는 자리 집합."""
+    rows, cols = grid_size(settings)
+    교실 = settings.get("교실") or {}
+    허용: dict[str, set] = {}
+    for rule in rules:
+        if rule.get("종류") != "희망":
+            continue
+        행 = _resolve_span(rule["행범위"], rows, 교실) if rule.get("행범위") else None
+        열 = _resolve_span(rule["열범위"], cols, 교실) if rule.get("열범위") else None
+        후보 = {s for s in seats
+                if (행 is None or 행[0] <= s[0] <= 행[1])
+                and (열 is None or 열[0] <= s[1] <= 열[1])}
+        이름 = rule["대상"]
+        허용[이름] = 허용[이름] & 후보 if 이름 in 허용 else 후보
+    return 허용
+
+
+def _비용(p: Problem, 배치: dict, 희망: dict, 원본: dict) -> tuple[int, int, int]:
+    """(필수 조건 위반 수, 희망 조건 위반 수, 원래 자리에서 옮긴 사람 수)."""
+    하드 = sum(1 for 이름, 자리 in 배치.items() if 자리 not in p.domains[이름])
+    확인함 = set()
+    for 이름 in 배치:
+        for 종류, 상대, d in p.이웃조건[이름]:
+            열쇠 = (*sorted((이름, 상대)), 종류, d)
+            if 열쇠 in 확인함:
+                continue
+            확인함.add(열쇠)
+            s1, s2 = 배치[이름], 배치.get(상대)
+            if s2 is None:
+                continue
+            if 종류 == "짝꿍" and not (s1[0] == s2[0] and abs(s1[1] - s2[1]) == 1):
+                하드 += 1
+            elif 종류 == "근처" and _dist(s1, s2) > d:
+                하드 += 1
+            elif 종류 == "분리" and _dist(s1, s2) < d:
+                하드 += 1
+            elif 종류 == "분단분리" and p.분단(s1) == p.분단(s2):
+                하드 += 1
+    if p.gender_pair:
+        자리별 = {자리: 이름 for 이름, 자리 in 배치.items()}
+        for 자리, 이름 in 자리별.items():
+            짝 = p.짝좌석(자리)
+            if 짝 and 짝 in 자리별 and 자리 < 짝:
+                a, b = p.성별.get(이름, ""), p.성별.get(자리별[짝], "")
+                if a and b and a == b:
+                    하드 += 1
+    소프트 = sum(1 for 이름, 허용 in 희망.items() if 배치.get(이름) not in 허용)
+    이동 = sum(1 for 이름, 자리 in 배치.items()
+              if 이름 in 원본 and tuple(원본[이름]) != 자리)
+    return 하드, 소프트, 이동
+
+
+def _위반학생(p: Problem, 배치: dict, 희망: dict) -> list[str]:
+    """지금 조건을 어기고 있는(=옮길 이유가 있는) 학생 이름."""
+    걸린사람: set[str] = set()
+    for 이름, 자리 in 배치.items():
+        if 자리 not in p.domains[이름]:
+            걸린사람.add(이름)
+        for 종류, 상대, d in p.이웃조건[이름]:
+            자리2 = 배치.get(상대)
+            if 자리2 is None:
+                continue
+            나쁨 = ((종류 == "짝꿍" and not (자리[0] == 자리2[0]
+                                        and abs(자리[1] - 자리2[1]) == 1))
+                  or (종류 == "근처" and _dist(자리, 자리2) > d)
+                  or (종류 == "분리" and _dist(자리, 자리2) < d)
+                  or (종류 == "분단분리" and p.분단(자리) == p.분단(자리2)))
+            if 나쁨:
+                걸린사람.update((이름, 상대))
+    if p.gender_pair:
+        자리별 = {자리: 이름 for 이름, 자리 in 배치.items()}
+        for 자리, 이름 in 자리별.items():
+            짝 = p.짝좌석(자리)
+            if 짝 and 짝 in 자리별:
+                a, b = p.성별.get(이름, ""), p.성별.get(자리별[짝], "")
+                if a and b and a == b:
+                    걸린사람.update((이름, 자리별[짝]))
+    걸린사람.update(이름 for 이름, 허용 in 희망.items()
+                 if 배치.get(이름) not in 허용)
+    return sorted(걸린사람)
+
+
+def repair_detail(settings: dict, 기존배치: dict, seed: int | None = None,
+                  반복: int = 400) -> tuple[dict, list[dict], list[str]]:
+    """기존 배치를 최대한 유지한 채 조건 위반만 고친다.
+
+    돌려주는 값: (새 배치, 못 지킨 희망 조건, 자리가 바뀐 학생 이름 목록)
+    고칠 수 없으면 처음부터 새로 배치한다.
+    """
+    rules = settings.get("조건") or []
+    기본조건 = [r for r in rules if r.get("종류") != "희망"]
+    p = build_problem(settings, 기본조건)
+    rng = random.Random(seed)
+    희망 = _희망도메인(settings, rules, p.seats)
+
+    원본 = {이름: tuple(자리) for 이름, 자리 in 기존배치.items()}
+    남은자리 = [s for s in p.seats if s not in set(원본.values())]
+    rng.shuffle(남은자리)
+    배치 = {}
+    for 학생 in p.students:                     # 명단이 바뀌었을 수도 있으므로 보정
+        이름 = 학생["이름"]
+        자리 = 원본.get(이름)
+        if 자리 is None or 자리 not in p.seats or 자리 in 배치.values():
+            자리 = 남은자리.pop()
+        배치[이름] = 자리
+
+    이름들 = list(배치)
+    최선배치, 최선비용 = dict(배치), _비용(p, 배치, 희망, 원본)
+    인내 = 40
+    for _ in range(반복):
+        현재 = _비용(p, 배치, 희망, 원본)
+        if 현재[0] == 0 and 현재[1] == 0:
+            break
+        빈자리목록 = [s for s in p.seats if s not in set(배치.values())]
+        움직일사람 = _위반학생(p, 배치, 희망) or 이름들
+        개선 = None
+        for a in 움직일사람:
+            원래a = 배치[a]
+            for b in (x for x in 이름들 if x != a):
+                배치[a], 배치[b] = 배치[b], 배치[a]
+                비용 = _비용(p, 배치, 희망, 원본)
+                배치[a], 배치[b] = 원래a, 배치[a]
+                if 개선 is None or 비용 < 개선[0]:
+                    개선 = (비용, ("교환", a, b))
+            for 자리 in 빈자리목록:
+                배치[a] = 자리
+                비용 = _비용(p, 배치, 희망, 원본)
+                배치[a] = 원래a
+                if 개선 is None or 비용 < 개선[0]:
+                    개선 = (비용, ("이동", a, 자리))
+        if 개선 and 개선[0] < 현재:
+            종류, a, 대상 = 개선[1]
+            if 종류 == "교환":
+                배치[a], 배치[대상] = 배치[대상], 배치[a]
+            else:
+                배치[a] = 대상
+        else:                                   # 막히면 흔들어 준다
+            a, b = rng.sample(이름들, 2)
+            배치[a], 배치[b] = 배치[b], 배치[a]
+            인내 -= 1
+            if 인내 <= 0:
+                break
+        비용 = _비용(p, 배치, 희망, 원본)
+        if 비용 < 최선비용:
+            최선배치, 최선비용 = dict(배치), 비용
+
+    배치, 비용 = 최선배치, 최선비용
+    if 비용[0] > 0:                             # 고치지 못하면 처음부터 다시
+        배치, 미충족 = solve_detail(settings, seed=seed)
+        바뀐 = [이름 for 이름, 자리 in 배치.items()
+               if 이름 in 원본 and tuple(원본[이름]) != 자리]
+        return 배치, 미충족, sorted(바뀐)
+
+    미충족 = [r for r in rules if r.get("종류") == "희망"
+             and 배치.get(r["대상"]) not in 희망.get(r["대상"], set())]
+    바뀐 = [이름 for 이름, 자리 in 배치.items()
+           if 이름 in 원본 and tuple(원본[이름]) != 자리]
+    return 배치, 미충족, sorted(바뀐)
