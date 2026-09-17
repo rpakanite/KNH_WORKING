@@ -24,7 +24,8 @@ from pathlib import Path
 
 GRID_VALID_DAYS = 365          # 1번 질문한 격자 크기를 유지하는 기간(1년)
 DEFAULT_BLOCK_WIDTH = 2        # 한 분단을 이루는 열 수
-DEFAULT_MIN_DISTANCE = 2       # "분리" 조건의 기본 최소 거리(칸)
+DEFAULT_GAP = 1                # "분리" 조건의 기본 간격(두 사람 사이에 비워 둘 칸 수)
+DEFAULT_MIN_DISTANCE = DEFAULT_GAP + 1   # 내부 계산용 좌석 거리(체비셰프)
 
 GENDER_ALIASES = {
     "남": "남", "남자": "남", "m": "남", "M": "남", "1": "남",
@@ -256,11 +257,12 @@ def parse_rule(line: str, 이름들: list[str]) -> dict:
     # 떼어놓기 / 분리
     if len(대상) >= 2 and re.search(
             r"(분리|떨어|멀리|떼|같이앉지|붙이지|옆에앉지|서로다른)", text):
-        거리 = DEFAULT_MIN_DISTANCE
+        간격 = DEFAULT_GAP
         d = re.search(r"(\d+)칸", text)
         if d:
-            거리 = max(1, int(d.group(1)))
-        return done({"종류": "분리", "대상들": 대상, "최소거리": 거리})
+            간격 = max(0, int(d.group(1)))
+        # 사이에 간격만큼 빈칸을 두려면 좌석 거리는 간격 + 1 이어야 한다
+        return done({"종류": "분리", "대상들": 대상, "최소거리": 간격 + 1})
 
     # 앞/뒤/좌/우 영역 (금지·희망 여부 포함)
     금지 = bool(re.search(r"(금지|안됨|안돼|하지마|피함|말것|말기|제외)", text))
@@ -328,7 +330,9 @@ def describe_rule(rule: dict) -> str:
     if k == "근처":
         return " · ".join(rule["대상들"]) + f" → {rule.get('최대거리', 1)}칸 이내"
     if k == "분리":
-        return " · ".join(rule["대상들"]) + f" → 서로 {rule.get('최소거리', DEFAULT_MIN_DISTANCE)}칸 이상 떨어뜨리기"
+        간격 = int(rule.get("최소거리", DEFAULT_MIN_DISTANCE)) - 1
+        설명 = "옆·앞뒤·대각선에 붙지 않게" if 간격 <= 1 else f"사이에 {간격}칸 이상 띄워"
+        return " · ".join(rule["대상들"]) + f" → {설명} 떨어뜨리기(사이 {간격}칸 이상)"
     if k == "분단분리":
         return " · ".join(rule["대상들"]) + " → 서로 다른 분단"
     if k == "남녀짝":
