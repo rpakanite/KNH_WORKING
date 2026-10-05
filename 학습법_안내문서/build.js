@@ -12,7 +12,7 @@ const B=(c)=>new Paragraph({keepLines:true,numbering:{reference:'b',level:0},spa
 const bd={style:BorderStyle.SINGLE,size:4,color:'000000'}; const borders={top:bd,bottom:bd,left:bd,right:bd};
 const cell=(t,w,{head=false,fill}={})=>new TableCell({width:{size:w,type:WidthType.DXA},borders,margins:{top:80,bottom:80,left:110,right:110},
   shading:{type:ShadingType.CLEAR,fill:fill||(head?BEIGE:'FFFFFF'),color:'auto'},
-  children:(Array.isArray(t)?t:[t]).map(x=>new Paragraph({keepNext:true,keepLines:true,spacing:{after:40,line:280},children:[run(x,head?{font:HEAD,size:20}:{size:20})]}))});
+  children:(Array.isArray(t)?t:[t]).map(x=>new Paragraph({keepLines:true,spacing:{after:40,line:280},children:[run(x,head?{font:HEAD,size:20}:{size:20})]}))});
 const table=(widths,rows)=>new Table({width:{size:widths.reduce((a,b)=>a+b),type:WidthType.DXA},columnWidths:widths,
   rows:rows.map((r,i)=>new TableRow({tableHeader:i==0,cantSplit:true,children:r.map((t,j)=>cell(t,widths[j],{head:i==0||false,fill:(i>0&&j==0)?'F4F4EE':undefined}))}))});
 const box=(title,lines)=>new Table({width:{size:W,type:WidthType.DXA},columnWidths:[W],rows:[new TableRow({children:[new TableCell({width:{size:W,type:WidthType.DXA},borders,shading:{type:ShadingType.CLEAR,fill:BEIGE,color:'auto'},margins:{top:120,bottom:120,left:200,right:200},
@@ -77,7 +77,7 @@ B('학습 목표에 같은 낱말이 들어 있는 것'),
 B('다른 문제집에서도 되풀이해서 설명하는 것'),
 
 H1('4. 평가별 공부 방법'),
-P('아래 순서대로 하면 틀린 곳이 점점 줄어들어요.'),
+P('아래 순서대로 하면 틀린 곳이 점점 줄어들어요.',{keepNext:true}),
 H2('① 진단평가: 공부를 시작하기 전'),
 P('지금 내 수준을 알아서 공부 계획을 짜는 데 써요. 이렇게 알아봐요.'),
 B('공부할 순서를 정해요.'),
@@ -125,8 +125,8 @@ table([1800,3919,3919],[
  ['방법','수업 때 요약해 적고 단원별로 표시','큰 종이(A3) 한 장에 배운 내용을 모두 정리'],
  ['특징','틀린 곳을 표시하며 계속 고쳐요','칸을 접어 단원별로 나누고, 관련된 내용은 선으로 이어요'],
 ]),sp(),
-P('색 규칙: 빨강=가장 중요한 것 / 초록+Q=이미 시험에 나온 문제 / 파랑=덧붙인 설명 / 연한 검정 선=관련된 내용 잇기'),
-C([img('한장정리본.jpg',450,338,'한 장 정리본 예시')]),
+P('색 규칙: 빨강=가장 중요한 것 / 초록+Q=이미 시험에 나온 문제 / 파랑=덧붙인 설명 / 연한 검정 선=관련된 내용 잇기',{keepNext:true}),
+C([img('한장정리본.jpg',420,315,'한 장 정리본 예시')]),
 cap('▲ 한 장 정리본 예시 (칸을 나누고 색과 선으로 정리)'),
 
 H1('7. 한꺼번에 보기'),
