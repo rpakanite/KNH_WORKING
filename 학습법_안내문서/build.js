@@ -3,36 +3,44 @@ const D=require('docx');
 const {Document,Packer,Paragraph,TextRun,Table,TableRow,TableCell,ImageRun,WidthType,ShadingType,BorderStyle,AlignmentType,HeadingLevel,TableOfContents,PageBreak,LevelFormat,Footer,PageNumber}=D;
 const BODY='ChangwonDangamRound', HEAD='ChangwonDangamAsac Bold';
 const BEIGE='E8E8DF', W=9638; // A4 w/ 1.5cm... content width DXA
-const run=(t,o={})=>new TextRun({text:t,font:BODY,size:22,...o});
-const P=(c,o={})=>new Paragraph({keepNext:true,keepLines:true,spacing:{after:120,line:310},...o,children:Array.isArray(c)?c:[run(c)]});
+const run=(t,o={})=>new TextRun({text:t,font:BODY,size:20,...o});
+const P=(c,o={})=>new Paragraph({keepNext:true,keepLines:true,spacing:{after:120,line:280},...o,children:Array.isArray(c)?c:[run(c)]});
 const H1set=new Set();const H2set=new Set();
-const H1=t=>{const p=new Paragraph({keepNext:true,keepLines:true,heading:HeadingLevel.HEADING_1,spacing:{before:300,after:140},border:{bottom:{style:BorderStyle.SINGLE,size:8,color:'000000',space:2}},children:[new TextRun({text:t,font:HEAD,size:34,bold:false})]});H1set.add(p);return p;};
-const H2=t=>{const p=new Paragraph({keepNext:true,keepLines:true,heading:HeadingLevel.HEADING_2,spacing:{before:180,after:80},children:[new TextRun({text:t,font:HEAD,size:28})]});H2set.add(p);return p;};
-const B=(c)=>new Paragraph({keepNext:true,keepLines:true,numbering:{reference:'b',level:0},spacing:{after:80,line:290},children:Array.isArray(c)?c:[run(c)]});
+const H1=t=>{const p=new Paragraph({keepNext:true,keepLines:true,heading:HeadingLevel.HEADING_1,spacing:{before:300,after:140},border:{bottom:{style:BorderStyle.SINGLE,size:8,color:'000000',space:2}},children:[new TextRun({text:t,font:HEAD,size:30,bold:false})]});H1set.add(p);return p;};
+const H2=t=>{const p=new Paragraph({keepNext:true,keepLines:true,heading:HeadingLevel.HEADING_2,spacing:{before:180,after:80},children:[new TextRun({text:t,font:HEAD,size:25})]});H2set.add(p);return p;};
+const B=(c)=>new Paragraph({keepNext:true,keepLines:true,numbering:{reference:'b',level:0},spacing:{after:80,line:265},children:Array.isArray(c)?c:[run(c)]});
 const bd={style:BorderStyle.SINGLE,size:4,color:'000000'}; const borders={top:bd,bottom:bd,left:bd,right:bd};
 const cell=(t,w,{head=false,fill}={})=>new TableCell({width:{size:w,type:WidthType.DXA},borders,margins:{top:80,bottom:80,left:110,right:110},
   shading:{type:ShadingType.CLEAR,fill:fill||(head?BEIGE:'FFFFFF'),color:'auto'},
-  children:(Array.isArray(t)?t:[t]).map(x=>new Paragraph({keepNext:true,keepLines:true,spacing:{after:40,line:280},children:[run(x,head?{font:HEAD,size:22}:{size:22})]}))});
+  children:(Array.isArray(t)?t:[t]).map(x=>new Paragraph({keepNext:true,keepLines:true,spacing:{after:40,line:280},children:[run(x,head?{font:HEAD,size:20}:{size:20})]}))});
 const table=(widths,rows)=>new Table({width:{size:widths.reduce((a,b)=>a+b),type:WidthType.DXA},columnWidths:widths,
   rows:rows.map((r,i)=>new TableRow({tableHeader:i==0,cantSplit:true,children:r.map((t,j)=>cell(t,widths[j],{head:i==0||false,fill:(i>0&&j==0)?'F4F4EE':undefined}))}))});
 const box=(title,lines)=>new Table({width:{size:W,type:WidthType.DXA},columnWidths:[W],rows:[new TableRow({children:[new TableCell({width:{size:W,type:WidthType.DXA},borders,shading:{type:ShadingType.CLEAR,fill:BEIGE,color:'auto'},margins:{top:120,bottom:120,left:200,right:200},
-  children:[new Paragraph({keepNext:true,keepLines:true,spacing:{after:80},children:[new TextRun({text:title,font:HEAD,size:26})]}),...lines.map(l=>new Paragraph({keepNext:true,keepLines:true,spacing:{after:60,line:290},children:Array.isArray(l)?l:[run(l,{size:22})]}))]})]})]});
+  children:[new Paragraph({keepNext:true,keepLines:true,spacing:{after:80},children:[new TextRun({text:title,font:HEAD,size:24})]}),...lines.map(l=>new Paragraph({keepNext:true,keepLines:true,spacing:{after:60,line:265},children:Array.isArray(l)?l:[run(l,{size:20})]}))]})]})]});
 const sp=()=>new Paragraph({keepNext:true,keepLines:true,spacing:{after:120},children:[]});
 const img=(f,w,h,t)=>new ImageRun({type:f.endsWith('png')?'png':'jpg',data:fs.readFileSync(f),transformation:{width:w,height:h},altText:{title:t,description:t,name:t}});
 const C=(c)=>new Paragraph({keepNext:true,keepLines:true,alignment:AlignmentType.CENTER,spacing:{after:80},children:c});
 const cap=t=>new Paragraph({keepNext:true,keepLines:true,alignment:AlignmentType.CENTER,spacing:{after:160},children:[run(t,{size:20})]});
 const band=(t,o)=>new Paragraph({keepNext:true,keepLines:true,shading:{type:ShadingType.CLEAR,fill:BEIGE},indent:{left:200,right:200},spacing:{after:0},children:[new TextRun({text:t,...o})]});
 const tocBox=new Table({width:{size:W,type:WidthType.DXA},columnWidths:[W],rows:[new TableRow({children:[new TableCell({width:{size:W,type:WidthType.DXA},borders,margins:{top:120,bottom:120,left:200,right:200},
-  children:[new Paragraph({keepNext:true,keepLines:true,spacing:{after:80},children:[new TextRun({text:'목차',font:HEAD,size:28})]}),new TableOfContents('목차',{hyperlink:true,headingStyleRange:'1-1'})]})]})]});
+  children:[new Paragraph({keepNext:true,keepLines:true,spacing:{after:80},children:[new TextRun({text:'목차',font:HEAD,size:25})]}),new TableOfContents('목차',{hyperlink:true,headingStyleRange:'1-1'})]})]})]});
 
 const cover=[
  band(' ',{size:40}),
- band('중학교 1학년을 위한 공부 안내',{font:BODY,size:28}),
+ band('중학교 1학년을 위한 공부 안내',{font:BODY,size:25}),
  band('공부, 어떻게 확인할까요?',{font:HEAD,size:64}),
  new Paragraph({keepNext:true,keepLines:true,shading:{type:ShadingType.CLEAR,fill:BEIGE},indent:{left:200,right:200},spacing:{after:240},children:[new TextRun({text:'평가를 내 공부에 쓰는 방법',font:BODY,size:30})]}),
  tocBox, sp(),
 ];
 
+const nb={style:BorderStyle.NONE,size:0,color:'FFFFFF'};const nbs={top:nb,bottom:nb,left:nb,right:nb};
+const cornell=new Table({width:{size:W,type:WidthType.DXA},columnWidths:[6400,3238],rows:[new TableRow({cantSplit:true,children:[
+ new TableCell({width:{size:6400,type:WidthType.DXA},borders:nbs,margins:{right:200},children:[
+  B('코넬 노트(칸 나누기 노트)는 해도 되고 안 해도 돼요. 하고 싶을 때만 써요.'),
+  P('코넬 노트는 종이를 네 칸으로 나눠요.'),
+  B('위쪽: 제목'),B('왼쪽: 중요한 낱말(키워드)'),B('오른쪽: 수업 필기'),B('아래쪽: 배운 내용을 한두 줄로 줄인 요약')]}),
+ new TableCell({width:{size:3238,type:WidthType.DXA},borders:nbs,children:[C([img('코넬노트.png',150,224,'코넬 노트 칸 나누기')]),cap('▲ 코넬 노트 칸 나누기')]})]})]});
+H2set.add(cornell);
 const body=[
 H1('1. 평가는 왜 필요할까요?'),
 P('평가는 "점수를 매기는 일"만이 아니에요. 내가 얼마나 알고 있는지 확인하고, 부족한 부분을 찾아 고치게 도와주는 일이에요. 선생님도 평가 결과를 보고 우리를 어떻게 도울지 정해요.'),
@@ -106,11 +114,8 @@ H1('5. 필기·요약 요령'),
 B('말을 그대로 받아 적지 않고, 중요한 낱말만 골라 적어요.'),
 B('줄을 나누고 화살표(→)로 이어서 서로 어떤 관계인지 보이게 해요.'),
 B('긴 내용은 번호를 붙여 정리해요. 번호는 이 순서로 써요.'),
-P([run('1.  →  1)  →  (1)  →  ①  →  가.  →  가)  →  (가)  →  ㉮',{size:24,bold:true})],{alignment:AlignmentType.CENTER}),
-B('코넬 노트(칸 나누기 노트)는 해도 되고 안 해도 돼요. 하고 싶을 때만 써요.'),
-P('코넬 노트는 종이를 네 칸으로 나눠요. 위쪽은 제목, 왼쪽은 중요한 낱말(키워드), 오른쪽은 수업 필기, 아래쪽은 배운 내용을 한두 줄로 줄인 요약을 써요.'),
-C([img('코넬노트.png',230,343,'코넬 노트 칸 나누기')]),
-cap('▲ 코넬 노트 칸 나누기: 제목 / 키워드 / 노트필기 / 요약 영역'),
+P([run('1.  →  1)  →  (1)  →  ①  →  가.  →  가)  →  (가)  →  ㉮',{size:21,bold:true})],{alignment:AlignmentType.CENTER}),
+cornell,
 
 H1('6. 심화: 한 장 정리본'),
 P('노트 정리와 한 장 정리본은 쓰임이 달라요. 중1 시험에는 보통 노트 정리가 알맞고, 한 장 정리본은 넓은 범위를 볼 때 도전해 봐요.'),
@@ -121,7 +126,7 @@ table([1800,3919,3919],[
  ['특징','틀린 곳을 표시하며 계속 고쳐요','칸을 접어 단원별로 나누고, 관련된 내용은 선으로 이어요'],
 ]),sp(),
 P('색 규칙: 빨강=가장 중요한 것 / 초록+Q=이미 시험에 나온 문제 / 파랑=덧붙인 설명 / 연한 검정 선=관련된 내용 잇기'),
-C([img('한장정리본.jpg',480,360,'한 장 정리본 예시')]),
+C([img('한장정리본.jpg',450,338,'한 장 정리본 예시')]),
 cap('▲ 한 장 정리본 예시 (칸을 나누고 색과 선으로 정리)'),
 
 H1('7. 한꺼번에 보기'),
@@ -136,12 +141,12 @@ table([2300,5338,2000],[
 
 H1('참고 자료: 예시 사진'),
 box('예시 사진 안내',[
- [run('아래 노트 사진은 위 방법 중 ',{size:22}),run('일부만',{size:22,bold:true}),run(' 적용한 예시예요.',{size:22})],
- [run('사진에 적용된 것: ',{size:22,bold:true}),run('요약해서 적은 필기 / 회색 형광펜으로 제목 구분 / 형광펜으로 처음 틀린 곳 표시 (사진은 빨강 계열 형광펜, 이 문서는 노란색 기준) / 빨간 별로 또 틀린 곳 표시',{size:22})],
- [run('사진에 없는 것: ',{size:22,bold:true}),run('포스트잇, 중요도 펜 색 나누기',{size:22})],
- [run('사진에 없어도 포스트잇과 중요도 표시는 반드시 해야 해요!',{size:22,bold:true})],
+ [run('아래 노트 사진은 위 방법 중 ',{size:20}),run('일부만',{size:20,bold:true}),run(' 적용한 예시예요.',{size:20})],
+ [run('사진에 적용된 것: ',{size:20,bold:true}),run('요약해서 적은 필기 / 회색 형광펜으로 제목 구분 / 형광펜으로 처음 틀린 곳 표시 (사진은 빨강 계열 형광펜, 이 문서는 노란색 기준) / 빨간 별로 또 틀린 곳 표시',{size:20})],
+ [run('사진에 없는 것: ',{size:20,bold:true}),run('포스트잇, 중요도 펜 색 나누기',{size:20})],
+ [run('사진에 없어도 포스트잇과 중요도 표시는 반드시 해야 해요!',{size:20,bold:true})],
 ]),sp(),
-C([img('노트예시.jpg',300,379,'노트 예시')]),
+C([img('노트예시.jpg',430,543,'노트 예시')]),
 cap('▲ 요약해서 적은 노트 예시'),
 P([run('※ 교육부 자료, 학술 논문, 합격 수기를 참고해 중1 눈높이로 쉽게 풀어 썼어요.',{size:18})],{spacing:{before:200}}),
 ];
@@ -149,11 +154,11 @@ P([run('※ 교육부 자료, 학술 논문, 합격 수기를 참고해 중1 눈
 const doc=new Document({
  fonts:[{name:BODY,data:fs.readFileSync('fonts/ChangwonDangamRound.ttf'),characterSet:'81'},{name:HEAD,data:fs.readFileSync('fonts/ChangwonDangamAsac-Bold.ttf'),characterSet:'81'}],
  features:{updateFields:true},
- styles:{default:{document:{run:{font:BODY,size:24}}},
-  paragraphStyles:[{id:'Heading1',name:'Heading 1',basedOn:'Normal',next:'Normal',quickFormat:true,run:{font:HEAD,size:34},paragraph:{outlineLevel:0}},
-  {id:'Heading2',name:'Heading 2',basedOn:'Normal',next:'Normal',quickFormat:true,run:{font:HEAD,size:28},paragraph:{outlineLevel:1}}]},
+ styles:{default:{document:{run:{font:BODY,size:21}}},
+  paragraphStyles:[{id:'Heading1',name:'Heading 1',basedOn:'Normal',next:'Normal',quickFormat:true,run:{font:HEAD,size:30},paragraph:{outlineLevel:0}},
+  {id:'Heading2',name:'Heading 2',basedOn:'Normal',next:'Normal',quickFormat:true,run:{font:HEAD,size:25},paragraph:{outlineLevel:1}}]},
  numbering:{config:[{reference:'b',levels:[{level:0,format:LevelFormat.BULLET,text:'•',alignment:AlignmentType.LEFT,style:{paragraph:{indent:{left:560,hanging:280}}}}]}]},
- sections:[{properties:{page:{size:{width:11906,height:16838},margin:{top:1134,bottom:1134,left:1134,right:1134}}},
+ sections:[{properties:{page:{size:{width:11906,height:16838},margin:{top:850,bottom:850,left:1134,right:1134}}},
   footers:{default:new Footer({children:[new Paragraph({keepNext:true,keepLines:true,alignment:AlignmentType.CENTER,children:[new TextRun({children:[PageNumber.CURRENT],font:BODY,size:20})]})]})},
   children:[...cover,...body.flatMap(e=>(H1set.has(e)||H2set.has(e))?[new Paragraph({spacing:{after:0,line:20},children:[new TextRun({text:'',size:2})]}),e]:[e])]}]});
 Packer.toBuffer(doc).then(b=>{fs.writeFileSync('공부방법_안내문.docx',b);console.log('ok')});
