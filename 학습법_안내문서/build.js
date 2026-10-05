@@ -4,31 +4,32 @@ const {Document,Packer,Paragraph,TextRun,Table,TableRow,TableCell,ImageRun,Width
 const BODY='ChangwonDangamRound', HEAD='ChangwonDangamAsac Bold';
 const BEIGE='E8E8DF', W=9638; // A4 w/ 1.5cm... content width DXA
 const run=(t,o={})=>new TextRun({text:t,font:BODY,size:22,...o});
-const P=(c,o={})=>new Paragraph({spacing:{after:120,line:360},...o,children:Array.isArray(c)?c:[run(c)]});
-const H1=t=>new Paragraph({heading:HeadingLevel.HEADING_1,spacing:{before:300,after:140},border:{bottom:{style:BorderStyle.SINGLE,size:8,color:'000000',space:2}},children:[new TextRun({text:t,font:HEAD,size:34,bold:false})]});
-const H2=t=>new Paragraph({heading:HeadingLevel.HEADING_2,spacing:{before:180,after:80},children:[new TextRun({text:t,font:HEAD,size:28})]});
-const B=(c)=>new Paragraph({numbering:{reference:'b',level:0},spacing:{after:80,line:340},children:Array.isArray(c)?c:[run(c)]});
+const P=(c,o={})=>new Paragraph({keepNext:true,keepLines:true,spacing:{after:120,line:310},...o,children:Array.isArray(c)?c:[run(c)]});
+const H1set=new Set();const H2set=new Set();
+const H1=t=>{const p=new Paragraph({keepNext:true,keepLines:true,heading:HeadingLevel.HEADING_1,spacing:{before:300,after:140},border:{bottom:{style:BorderStyle.SINGLE,size:8,color:'000000',space:2}},children:[new TextRun({text:t,font:HEAD,size:34,bold:false})]});H1set.add(p);return p;};
+const H2=t=>{const p=new Paragraph({keepNext:true,keepLines:true,heading:HeadingLevel.HEADING_2,spacing:{before:180,after:80},children:[new TextRun({text:t,font:HEAD,size:28})]});H2set.add(p);return p;};
+const B=(c)=>new Paragraph({keepNext:true,keepLines:true,numbering:{reference:'b',level:0},spacing:{after:80,line:290},children:Array.isArray(c)?c:[run(c)]});
 const bd={style:BorderStyle.SINGLE,size:4,color:'000000'}; const borders={top:bd,bottom:bd,left:bd,right:bd};
 const cell=(t,w,{head=false,fill}={})=>new TableCell({width:{size:w,type:WidthType.DXA},borders,margins:{top:80,bottom:80,left:110,right:110},
   shading:{type:ShadingType.CLEAR,fill:fill||(head?BEIGE:'FFFFFF'),color:'auto'},
-  children:(Array.isArray(t)?t:[t]).map(x=>new Paragraph({spacing:{after:40,line:320},children:[run(x,head?{font:HEAD,size:22}:{size:22})]}))});
+  children:(Array.isArray(t)?t:[t]).map(x=>new Paragraph({keepNext:true,keepLines:true,spacing:{after:40,line:280},children:[run(x,head?{font:HEAD,size:22}:{size:22})]}))});
 const table=(widths,rows)=>new Table({width:{size:widths.reduce((a,b)=>a+b),type:WidthType.DXA},columnWidths:widths,
   rows:rows.map((r,i)=>new TableRow({tableHeader:i==0,cantSplit:true,children:r.map((t,j)=>cell(t,widths[j],{head:i==0||false,fill:(i>0&&j==0)?'F4F4EE':undefined}))}))});
 const box=(title,lines)=>new Table({width:{size:W,type:WidthType.DXA},columnWidths:[W],rows:[new TableRow({children:[new TableCell({width:{size:W,type:WidthType.DXA},borders,shading:{type:ShadingType.CLEAR,fill:BEIGE,color:'auto'},margins:{top:120,bottom:120,left:200,right:200},
-  children:[new Paragraph({spacing:{after:80},children:[new TextRun({text:title,font:HEAD,size:26})]}),...lines.map(l=>new Paragraph({spacing:{after:60,line:330},children:Array.isArray(l)?l:[run(l,{size:22})]}))]})]})]});
-const sp=()=>new Paragraph({spacing:{after:120},children:[]});
+  children:[new Paragraph({keepNext:true,keepLines:true,spacing:{after:80},children:[new TextRun({text:title,font:HEAD,size:26})]}),...lines.map(l=>new Paragraph({keepNext:true,keepLines:true,spacing:{after:60,line:290},children:Array.isArray(l)?l:[run(l,{size:22})]}))]})]})]});
+const sp=()=>new Paragraph({keepNext:true,keepLines:true,spacing:{after:120},children:[]});
 const img=(f,w,h,t)=>new ImageRun({type:f.endsWith('png')?'png':'jpg',data:fs.readFileSync(f),transformation:{width:w,height:h},altText:{title:t,description:t,name:t}});
-const C=(c)=>new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:80},children:c});
-const cap=t=>new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:160},children:[run(t,{size:20})]});
-const band=(t,o)=>new Paragraph({shading:{type:ShadingType.CLEAR,fill:BEIGE},indent:{left:200,right:200},spacing:{after:0},children:[new TextRun({text:t,...o})]});
+const C=(c)=>new Paragraph({keepNext:true,keepLines:true,alignment:AlignmentType.CENTER,spacing:{after:80},children:c});
+const cap=t=>new Paragraph({keepNext:true,keepLines:true,alignment:AlignmentType.CENTER,spacing:{after:160},children:[run(t,{size:20})]});
+const band=(t,o)=>new Paragraph({keepNext:true,keepLines:true,shading:{type:ShadingType.CLEAR,fill:BEIGE},indent:{left:200,right:200},spacing:{after:0},children:[new TextRun({text:t,...o})]});
 const tocBox=new Table({width:{size:W,type:WidthType.DXA},columnWidths:[W],rows:[new TableRow({children:[new TableCell({width:{size:W,type:WidthType.DXA},borders,margins:{top:120,bottom:120,left:200,right:200},
-  children:[new Paragraph({spacing:{after:80},children:[new TextRun({text:'목차',font:HEAD,size:28})]}),new TableOfContents('목차',{hyperlink:true,headingStyleRange:'1-1'})]})]})]});
+  children:[new Paragraph({keepNext:true,keepLines:true,spacing:{after:80},children:[new TextRun({text:'목차',font:HEAD,size:28})]}),new TableOfContents('목차',{hyperlink:true,headingStyleRange:'1-1'})]})]})]});
 
 const cover=[
  band(' ',{size:40}),
  band('중학교 1학년을 위한 공부 안내',{font:BODY,size:28}),
  band('공부, 어떻게 확인할까요?',{font:HEAD,size:64}),
- new Paragraph({shading:{type:ShadingType.CLEAR,fill:BEIGE},indent:{left:200,right:200},spacing:{after:240},children:[new TextRun({text:'평가를 내 공부에 쓰는 방법',font:BODY,size:30})]}),
+ new Paragraph({keepNext:true,keepLines:true,shading:{type:ShadingType.CLEAR,fill:BEIGE},indent:{left:200,right:200},spacing:{after:240},children:[new TextRun({text:'평가를 내 공부에 쓰는 방법',font:BODY,size:30})]}),
  tocBox, sp(),
 ];
 
@@ -153,6 +154,6 @@ const doc=new Document({
   {id:'Heading2',name:'Heading 2',basedOn:'Normal',next:'Normal',quickFormat:true,run:{font:HEAD,size:28},paragraph:{outlineLevel:1}}]},
  numbering:{config:[{reference:'b',levels:[{level:0,format:LevelFormat.BULLET,text:'•',alignment:AlignmentType.LEFT,style:{paragraph:{indent:{left:560,hanging:280}}}}]}]},
  sections:[{properties:{page:{size:{width:11906,height:16838},margin:{top:1134,bottom:1134,left:1134,right:1134}}},
-  footers:{default:new Footer({children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({children:[PageNumber.CURRENT],font:BODY,size:20})]})]})},
-  children:[...cover,...body]}]});
+  footers:{default:new Footer({children:[new Paragraph({keepNext:true,keepLines:true,alignment:AlignmentType.CENTER,children:[new TextRun({children:[PageNumber.CURRENT],font:BODY,size:20})]})]})},
+  children:[...cover,...body.flatMap(e=>(H1set.has(e)||H2set.has(e))?[new Paragraph({spacing:{after:0,line:20},children:[new TextRun({text:'',size:2})]}),e]:[e])]}]});
 Packer.toBuffer(doc).then(b=>{fs.writeFileSync('공부방법_안내문.docx',b);console.log('ok')});
