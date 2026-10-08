@@ -346,6 +346,13 @@ def describe_rule(rule: dict) -> str:
         return " · ".join(rule["대상들"]) + " → 서로 다른 분단"
     if k == "짝제한":
         조각 = []
+        if rule.get("사람허용"):
+            앞 = " · ".join(rule["사람허용"])
+            뒤 = ""
+            if rule.get("성별금지") or rule.get("사람금지"):
+                막음 = list(rule.get("성별금지", [])) + list(rule.get("사람금지", []))
+                뒤 = f", {' · '.join(막음)} 제외"
+            return f"{rule['대상']} → {앞} 중에서 짝 짓기{뒤}"
         if rule.get("성별금지"):
             조각.append("/".join(rule["성별금지"]) + "학생")
         if rule.get("사람금지"):
@@ -367,6 +374,13 @@ def describe_rule(rule: dict) -> str:
         return "모든 짝(같은 분단 좌우)은 남녀로 구성"
     if k == "짝제한":
         조각 = []
+        if rule.get("사람허용"):
+            앞 = " · ".join(rule["사람허용"])
+            뒤 = ""
+            if rule.get("성별금지") or rule.get("사람금지"):
+                막음 = list(rule.get("성별금지", [])) + list(rule.get("사람금지", []))
+                뒤 = f", {' · '.join(막음)} 제외"
+            return f"{rule['대상']} → {앞} 중에서 짝 짓기{뒤}"
         if rule.get("성별금지"):
             조각.append("/".join(rule["성별금지"]) + "학생")
         if rule.get("사람금지"):
@@ -481,7 +495,9 @@ class Problem:
         self.far = far                  # [(A, B, 최소거리)]
         self.diff_block = diff_block    # [(A, B)]
         self.gender_pair = gender_pair  # 남녀짝 적용 여부
-        self.짝제한 = 짝제한 or {}      # 이름 -> {"성별금지": set, "사람금지": set}
+        self.짝제한 = 짝제한 or {}      # 이름 -> {"성별금지"/"사람금지"/"사람허용": set}
+        self.막힌자리 = {(r, c) for r in range(1, rows + 1) for c in range(1, cols + 1)
+                      if (r, c) not in set(seats)}
         self.무리제한 = 무리제한 or []  # [(이름들, 최대인원)]
         self.교실 = 교실
         self.성별 = {s["이름"]: s.get("성별", "") for s in students}
@@ -583,6 +599,7 @@ def build_problem(settings: dict, rules: list[dict] | None = None,
             짝제한[rule["대상"]] = {
                 "성별금지": {nfc(g) for g in rule.get("성별금지", [])},
                 "사람금지": {nfc(n) for n in rule.get("사람금지", [])},
+                "사람허용": {nfc(n) for n in rule.get("사람허용", [])},
             }
             continue
         if k == "무리제한":
@@ -640,9 +657,20 @@ def _dist(s1, s2) -> int:
     return max(abs(s1[0] - s2[0]), abs(s1[1] - s2[1]))
 
 
-def _짝제한_ok(p: Problem, name: str, seat, 사용중: dict, 배치: dict) -> bool:
-    """조재윤 같은 '짝 제한'이 걸린 학생의 옆자리 조건을 확인한다."""
+def _짝제한_ok(p: Problem, name: str, seat, 사용중: dict, 배치: dict,
+              확정: bool = False) -> bool:
+    """'짝(옆자리) 제한'이 걸린 학생의 조건을 확인한다.
+
+    확정=False(탐색 중)에서는 아직 비어 있는 옆자리를 통과시키고,
+    확정=True(완성된 배치 검사)에서는 '이 사람들 중에서 짝' 조건을 끝까지 따진다.
+    """
     def 통과(제한: dict, 상대: str | None) -> bool:
+        허용 = 제한.get("사람허용")
+        if 허용:
+            if 상대 is None:
+                return not 확정
+            if 상대 not in 허용:
+                return False
         if not 상대:
             return True
         if p.성별.get(상대, "") in 제한["성별금지"]:
@@ -652,6 +680,9 @@ def _짝제한_ok(p: Problem, name: str, seat, 사용중: dict, 배치: dict) ->
     제한 = p.짝제한.get(name)
     if 제한:
         짝자리 = p.짝좌석(seat)
+        if 짝자리 is None or (제한.get("사람허용") and 짝자리 in p.막힌자리):
+            if 제한.get("사람허용"):
+                return False            # 짝이 생길 수 없는 자리
         if 짝자리 is not None and not 통과(제한, 사용중.get(짝자리)):
             return False
     for 상대이름, 상대제한 in p.짝제한.items():
@@ -723,10 +754,17 @@ def _fits(p: Problem, name: str, seat, 배치: dict, 사용중: dict) -> bool:
     return True
 
 
+def _최종짝확인(p: Problem, 배치: dict, 사용중: dict) -> bool:
+    """완성된 배치에서 '이 사람들 중에서 짝' 조건이 실제로 지켜졌는지."""
+    return all(_짝제한_ok(p, 이름, 배치[이름], 사용중,
+                        {k: v for k, v in 배치.items() if k != 이름}, 확정=True)
+               for 이름 in p.짝제한 if 이름 in 배치)
+
+
 def _backtrack(p: Problem, 배치: dict, 사용중: dict, rng: random.Random,
                카운터: list[int], 한계: int) -> bool:
     if len(배치) == len(p.students):
-        return True
+        return _최종짝확인(p, 배치, 사용중)
     카운터[0] += 1
     if 카운터[0] > 한계:
         return False
@@ -1174,6 +1212,7 @@ def _희망도메인(settings: dict, rules: list[dict], seats: list) -> dict:
 def _비용(p: Problem, 배치: dict, 희망: dict, 원본: dict) -> tuple[int, int, int]:
     """(필수 조건 위반 수, 희망 조건 위반 수, 원래 자리에서 옮긴 사람 수)."""
     하드 = sum(1 for 이름, 자리 in 배치.items() if 자리 not in p.domains[이름])
+    하드 += len(배치) - len(set(배치.values()))     # 자리 겹침
     확인함 = set()
     for 이름 in 배치:
         for 종류, 상대, d in p.이웃조건[이름]:
@@ -1202,8 +1241,9 @@ def _비용(p: Problem, 배치: dict, 희망: dict, 원본: dict) -> tuple[int, 
                     하드 += 1
     사용중 = {자리: 이름 for 이름, 자리 in 배치.items()}
     for 이름, 자리 in 배치.items():
-        if p.짝제한 and not _짝제한_ok(p, 이름, 자리, 사용중, 
-                                  {k: v for k, v in 배치.items() if k != 이름}):
+        if p.짝제한 and not _짝제한_ok(p, 이름, 자리, 사용중,
+                                  {k: v for k, v in 배치.items() if k != 이름},
+                                  확정=True):
             하드 += 1
         if p.무리제한 and not _무리제한_ok(
                 p, 이름, 자리, {k: v for k, v in 배치.items() if k != 이름}):
@@ -1242,7 +1282,7 @@ def _위반학생(p: Problem, 배치: dict, 희망: dict) -> list[str]:
     사용중 = {자리: 이름 for 이름, 자리 in 배치.items()}
     for 이름, 자리 in 배치.items():
         나머지 = {k: v for k, v in 배치.items() if k != 이름}
-        if p.짝제한 and not _짝제한_ok(p, 이름, 자리, 사용중, 나머지):
+        if p.짝제한 and not _짝제한_ok(p, 이름, 자리, 사용중, 나머지, 확정=True):
             걸린사람.add(이름)
             짝자리 = p.짝좌석(자리)
             if 짝자리 and 짝자리 in 사용중:
@@ -1252,6 +1292,32 @@ def _위반학생(p: Problem, 배치: dict, 희망: dict) -> list[str]:
     걸린사람.update(이름 for 이름, 허용 in 희망.items()
                  if 배치.get(이름) not in 허용)
     return sorted(걸린사람)
+
+
+def _흔들기(p: Problem, 배치: dict, 희망: dict, rng: random.Random) -> None:
+    """한 칸씩 맞바꾸는 것만으로 못 빠져나오는 국소 최적에서 벗어나기.
+
+    조건을 어기고 있는 학생 → 그 학생이 원하는 자리의 주인 → … 으로 사슬을 만든 뒤
+    사슬 전체를 한 칸씩 돌린다(여러 명이 동시에 자리를 바꾸는 효과).
+    """
+    이름들 = list(배치)
+    자리주인 = {자리: 이름 for 이름, 자리 in 배치.items()}
+    사슬 = [rng.choice(_위반학생(p, 배치, 희망) or 이름들)]
+    for _ in range(rng.randint(1, 4)):
+        현재 = 사슬[-1]
+        목표 = sorted(희망.get(현재, set()) - {배치[현재]}) \
+            or [자리 for 자리 in p.seats if 자리 != 배치[현재]]
+        다음 = 자리주인.get(rng.choice(목표))
+        if 다음 is None or 다음 in 사슬:
+            break
+        사슬.append(다음)
+    if len(사슬) < 2:
+        a, b = rng.sample(이름들, 2)
+        배치[a], 배치[b] = 배치[b], 배치[a]
+        return
+    자리들 = [배치[n] for n in 사슬]
+    for i, 이름 in enumerate(사슬):          # 사슬을 한 칸씩 회전
+        배치[이름] = 자리들[(i + 1) % len(사슬)]
 
 
 def _국소개선(p: Problem, 배치: dict, 희망: dict, 원본: dict, rng: random.Random,
@@ -1288,8 +1354,7 @@ def _국소개선(p: Problem, 배치: dict, 희망: dict, 원본: dict, rng: ran
             else:
                 배치[a] = 대상
         else:                                   # 막히면 흔들어 준다
-            a, b = rng.sample(이름들, 2)
-            배치[a], 배치[b] = 배치[b], 배치[a]
+            _흔들기(p, 배치, 희망, rng)
             인내 -= 1
             if 인내 <= 0:
                 break
@@ -1381,6 +1446,34 @@ def solve_best(settings: dict, seed: int | None = None, 시도: int = 8,
     return 배치, 미충족, 확장
 
 
+def _일부짝_굳히기(settings: dict, rules: list[dict], 배치: dict) -> list[dict]:
+    """이미 '일부짝' 조건을 만족하고 있으면 그 선택을 그대로 굳혀서 돌려준다."""
+    rows, cols = grid_size(settings)
+    교실 = settings.get("교실") or {}
+    결과: list[dict] = []
+    for rule in rules:
+        if rule.get("종류") != "일부짝":
+            결과.append(rule)
+            continue
+        해당 = 영역조건(rule, rows, cols, 교실)
+        대상들 = rule["대상들"]
+        안 = [n for n in 대상들 if n in 배치 and 해당(tuple(배치[n]))]
+        if len(안) != int(rule.get("인원", 2)) or len(안) != 2:
+            결과.append(rule)
+            continue
+        a, b = (tuple(배치[n]) for n in 안)
+        if a[0] != b[0] or abs(a[1] - b[1]) != 1:
+            결과.append(rule)
+            continue
+        거리 = int(rule.get("나머지최소거리", DEFAULT_MIN_DISTANCE))
+        나머지 = [n for n in 대상들 if n not in 안]
+        결과 += [{"종류": "고정", "대상": n, "행": tuple(배치[n])[0],
+                 "열": tuple(배치[n])[1], "원문": rule.get("원문", "")} for n in 안]
+        결과 += [{"종류": "분리", "대상들": [x, y], "최소거리": 거리}
+                for x in 안 for y in 나머지]
+    return 결과
+
+
 def repair_detail(settings: dict, 기존배치: dict, seed: int | None = None,
                   반복: int = 400) -> tuple[dict, list[dict], list[str]]:
     """기존 배치를 최대한 유지한 채 조건 위반만 고친다.
@@ -1388,9 +1481,9 @@ def repair_detail(settings: dict, 기존배치: dict, seed: int | None = None,
     돌려주는 값: (새 배치, 못 지킨 희망 조건, 자리가 바뀐 학생 이름 목록)
     고칠 수 없으면 처음부터 새로 배치한다.
     """
-    rules = settings.get("조건") or []
+    rules = _일부짝_굳히기(settings, settings.get("조건") or [], 기존배치)
     if any(r.get("종류") == "일부짝" for r in rules):
-        # '무작위 둘은 짝으로' 같은 선택형 조건은 최소 수정으로 다루기 어렵다
+        # 지금 배치가 선택형 조건을 만족하지 못하면 처음부터 다시 고른다
         배치, 미충족, _ = solve_best(settings, seed=seed)
         바뀐 = [이름 for 이름, 자리 in 배치.items()
                if 이름 in 기존배치 and tuple(기존배치[이름]) != 자리]
