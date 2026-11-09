@@ -22,7 +22,7 @@ BLANKS = [
     ("01-1", "일정한범위안에서쓰이는", "의집합", 20, "단어", ("단어", "낱말"), "", ()),
     ("01-2", "어휘의양상과쓰임이", "나타남", 24, "달리/다르게", ("달리", "다르게", "다양하게"), "", ()),
     ("02-1", "", "로/으로된어휘,전통적생활문화", 20, "한자", ("한자",), "", ()),
-    ("02-2", "말을", "하거나", 20, "변형", ("변형", "줄임", "줄여", "축약"), "", ()),
+    ("02-2", "말을", "하거나", 20, "변형", ("변형", "줄임", "줄여", "줄이", "축약"), "", ()),  # 줄이: 승인된 '줄임'의 활용형
     ("03-1", "", ",무탈하게,처서", 20, "별고", ("별고",), "", ()),
     ("03-2", "무탈하게,처서,", ",그믐", 20, "자제", ("자제",), "", ()),
     ("03-3", "생파,", ",각", 20, "댓", ("댓",), "", ()),
@@ -58,6 +58,7 @@ CRIT = {"기준1": ["02-1", "02-2", "03-1", "03-2", "03-3"],
 BAND = {"기준1": (5, 3), "기준2": (5, 3), "기준3": (5, 3), "기준4": (5, 3), "기준5": (4, 2)}
 
 MARK = re.compile(r"\[C\](.*?)\[/\]")
+TICKS = "○◯●Oo0ㅇVv✓√✔"   # 보기 옆에 덧붙인 표시(승인 규칙 밖 — 교사 확인용으로만 판정)
 _tpl = None
 
 
@@ -92,6 +93,11 @@ def pick(inner_marked, options):
         return remain[0], "삭제형"
     if not remain:
         return None, "모두삭제"
+    ticked = [o for o in options
+              if re.search(re.escape(o) + "[" + TICKS + "]", plain)
+              or re.search("[" + TICKS + "]" + re.escape(o), plain)]
+    if len(ticked) == 1:
+        return ticked[0], "표시형"
     return None, "무응답"
 
 
@@ -102,6 +108,10 @@ def grade_choices(marked_text):
             re.escape(after).replace(r"\.", r"\.?")
         # 색 표시가 앞말·뒷말 사이에 끼어 있을 수 있어 표시를 뺀 본문으로도 위치를 찾는다
         m = re.search(pat, marked_text)
+        if not m and before:
+            m2 = re.search(re.escape(before) + r"\(((?:[^()]|\[/?C?\]){0,80}?)\)", marked_text)
+            if m2 and any(o in MARK.sub(r"\1", m2.group(1)) for o in options):
+                m = m2
         if not m:
             # 색 표시가 괄호 밖까지 이어져 위 패턴에 안 걸리는 경우를 구분해 적어 둔다
             stripped = re.sub(r"\[/?C?\]", "", marked_text)
@@ -142,12 +152,19 @@ def grade(path):
         else:
             items[key] = ["X", v]
 
+    ticked = []
     for key, (mark, val, how) in grade_choices(marked).items():
         items[key] = [mark, val]
         if mark == "?":
             miss.append(key)
         elif mark == "!":
             notes.append(f"{key} {how} — 교사 확인 필요")
+        if how == "표시형":
+            ticked.append(key)
+    if ticked:
+        notes.append(f"선택형을 보기 옆 ○ 표시로 답함: {'·'.join(ticked)} — 승인 규칙 밖이라 교사 확인 권장")
+    if pathlib.Path(path).read_bytes() == TEMPLATE.read_bytes():
+        notes.append("빈 학습지 원본을 그대로 제출함 — 파일이 원본과 같음")
 
     if miss:
         notes.append(f"미검출 {len(miss)}칸({', '.join(miss)}) — 교사 확인 권장")

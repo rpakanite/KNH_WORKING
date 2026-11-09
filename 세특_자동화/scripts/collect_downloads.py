@@ -12,7 +12,7 @@ import json
 import pathlib
 import sys
 
-EXT = {"application/pdf": "pdf", "application/haansofthwpx": "hwpx",
+EXT = {"application/pdf": "pdf", "application/haansofthwpx": "hwpx", "application/vnd.hancom.hwp": "hwp",
        "application/haansofthwp": "hwp", "application/x-hwp": "hwp"}
 
 
