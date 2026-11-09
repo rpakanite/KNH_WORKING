@@ -18,8 +18,8 @@ TEMPLATE = pathlib.Path(".claude/cache/원본/단어의짜임_학습지.hwp")
 
 # 빈칸 56칸 — 빈 학습지에 나오는 순서 그대로 (키, 정답, 허용 표현)
 BLANKS = [
-    ("01-1", "자립", ()), ("01-2", "꽃", ()), ("01-3", "병", ()), ("01-4", "-개", ()),
-    ("01-5", "하늘", ()), ("01-6", "지우-", ()), ("01-7", "형식", ()), ("01-8", "-개", ()),
+    ("01-1", "자립", ("자립형태소",)), ("01-2", "꽃", ()), ("01-3", "병", ()), ("01-4", "-개", ()),
+    ("01-5", "하늘", ()), ("01-6", "지우-", ()), ("01-7", "형식", ("형식형태소",)), ("01-8", "-개", ()),
     ("01-9", "뜻", ("의미",)),
     ("03-1", "헛-", ()), ("03-2", "소리", ()), ("03-3", "헛-", ()),
     ("03-4", "가위", ()), ("03-5", "-질", ()), ("03-6", "-질", ()),
@@ -30,7 +30,7 @@ BLANKS = [
     ("06-9", "파생어", ()), ("06-10", "덧버선", ()), ("06-11", "덧-", ()), ("06-12", "버선", ()),
     ("06-13", "울-", ()), ("06-14", "-보", ()), ("06-15", "복합어", ()),
     ("07-1", "솔", ()), ("07-2", "나무", ()), ("07-3", "딸", ()), ("07-4", "-님", ()),
-    ("07-5", "-ㄹ", ()),
+    ("07-5", "-ㄹ", ("ㄹ",)),
     ("08-1", "댓글", ()), ("08-2", "홈페이지", ()), ("08-3", "소리책", ()),
     ("09-1", "둘레", ()), ("09-2", "길", ()), ("09-3", "합성", ()), ("09-4", "누리", ()),
     ("09-5", "접사", ("접미사",)), ("09-6", "접사", ("접미사",)),
@@ -47,7 +47,6 @@ SPLITS = [
     ("02-7", "주머니", ["주머니"]), ("02-8", "풋나물", ["풋", "나물"]), ("02-9", "가위질", ["가위", "질"]),
     ("02-10", "장난꾸러기", ["장난", "꾸러기"]),
 ]
-SEP = r"[-]?\s*[,+/·|ㆍ]\s*[-]?"
 
 CRIT = {"기준1": [k for k, *_ in BLANKS if k.startswith("01")],
         "기준2": [k for k, *_ in SPLITS] + [k for k, *_ in BLANKS if k.startswith("03")],
@@ -61,7 +60,7 @@ _tpl = None
 
 def norm(s):
     """하이픈(-)과 표시 기호를 빼고 비교한다 — 하이픈 생략은 정답으로 본다(분석기준 v1)."""
-    return re.sub(r"[-\s△▲○◯●□■]", "", s)
+    return re.sub(r"[-–_\s△▲○◯●□■‘’'\"“”]", "", s)
 
 
 def template():
@@ -76,26 +75,50 @@ def section02(text):
     return text[i:j] if 0 <= i < j else ""
 
 
+LABELS = ("동그라미", "동그리미", "세모", "네모", "삼각형")   # △·○를 글로 쓴 경우
+MARKS = "△▲▵Δ○◯●ㅇOo⬆□■"
+
+
 def grade_splits(text):
+    """02번 — 단어마다 그 행에 적힌 형태소 조각을 모아 바른 나눔과 비교한다.
+
+    학생들은 '김△,밥△', '김 -> 세모, 밥 -> 세모', '김:△ 밥:△'처럼 △·○ 표시나 그
+    이름을 조각 사이에 섞어 쓰므로, 한글 조각만 뽑아 비교한다(△·○ 자체는 판독 제외).
+    조각 순서는 따지지 않는다. 한글 조각 없이 △·○만 그린 행은 나눔을 판독할 수 없어
+    '?'(판독 제외)로 둔다.
+    """
     sec = section02(text)
     out = {}
-    for key, word, parts in SPLITS:
-        if not sec:
+    if not sec:
+        return {k: ["?", "미검출"] for k, *_ in SPLITS}
+    pos, starts = 0, []
+    for _key, word, _parts in SPLITS:          # 행 머리(단어)를 차례로 찾는다
+        k = sec.find(word, pos)
+        starts.append(k)
+        if k >= 0:
+            pos = k + len(word)
+    for n, (key, word, parts) in enumerate(SPLITS):
+        if starts[n] < 0:
             out[key] = ["?", "미검출"]
             continue
-        if len(parts) == 1:
-            split_any = any(re.search(re.escape(word[:k]) + SEP + re.escape(word[k:]), sec)
-                            for k in range(1, len(word)))
-            n = sec.count(word)
-            out[key] = ["X", "잘못 나눔"] if split_any else (["O", word] if n >= 2 else ["-", ""])
+        a = starts[n] + len(word)
+        b = next((x for x in starts[n + 1:] if x >= 0), len(sec))
+        seg = sec[a:b]
+        for lb in LABELS:
+            seg = seg.replace(lb, "|")
+        toks = re.findall(r"[가-힣]+", seg)
+        if len(toks) > len(parts) and toks[0] == word:   # '김밥: 김, 밥'처럼 단어를 다시 쓴 경우
+            toks = toks[1:]
+        shown = "+".join(toks)
+        if not toks:
+            marked = any(m in seg for m in MARKS) or "|" in seg
+            out[key] = ["?", "△·○만 표시"] if marked else ["-", ""]
+        elif sorted(toks) == sorted(parts):
+            out[key] = ["O", shown]
+        elif len(parts) > 1 and toks == [word]:
+            out[key] = ["X", f"{word}(나누지 않음)"]
         else:
-            if re.search(SEP.join(re.escape(p) for p in parts), sec):
-                out[key] = ["O", "+".join(parts)]
-            elif any(re.search(re.escape(word[:k]) + SEP + re.escape(word[k:]), sec)
-                     for k in range(1, len(word))):
-                out[key] = ["X", "다르게 나눔"]
-            else:
-                out[key] = ["-", ""]
+            out[key] = ["X", shown]
     return out
 
 
@@ -124,7 +147,11 @@ def grade(path):
             items[a], items[b] = ["O", vals[a]], ["O", vals[b]]
     items.update(grade_splits(text))
 
-    miss = [k for k, v in items.items() if v[0] == "?"]
+    marks = [k for k, v in items.items() if v == ["?", "△·○만 표시"]]
+    if marks:
+        notes.append(f"02번 {len(marks)}칸은 형태소를 나누어 쓰지 않고 △·○만 표시 — "
+                     "판독 제외(등급 계산에서 뺌), 교사 확인")
+    miss = [k for k, v in items.items() if v[0] == "?" and k not in marks]
     if miss:
         notes.append(f"미검출 {len(miss)}칸({', '.join(miss)}) — 교사 확인 권장")
     if fixed:
@@ -136,8 +163,8 @@ def grade(path):
 
     out = {"format": fmt, "items": items, "notes": notes}
     for c, keys in CRIT.items():
-        vs = [items[k][0] for k in keys]
-        if all(v == "?" for v in vs):
+        vs = [items[k][0] for k in keys if items[k][0] != "?"]   # 판독 못 한 칸은 분모에서 뺀다
+        if not vs:
             out[c] = "확인불가"
         else:
             r = vs.count("O") / len(vs)

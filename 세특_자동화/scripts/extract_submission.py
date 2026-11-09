@@ -234,6 +234,21 @@ def _group_lines(chars, tol=None):
     return lines
 
 
+def _halves(pages):
+    """가로로 놓인 쪽(한 장에 두 쪽 모아찍기)은 왼쪽·오른쪽 반으로 나눠 차례로 돌려준다.
+
+    한글에서 '모아 찍기'로 PDF를 만들면 A4 두 쪽이 가로 한 장에 나란히 들어가,
+    그대로 읽으면 왼쪽 쪽과 오른쪽 쪽의 글이 위에서부터 뒤섞인다.
+    """
+    for page in pages:
+        w, h = page.width, page.height
+        if w > h * 1.2:
+            yield page.crop((0, 0, w / 2, h))
+            yield page.crop((w / 2, 0, w, h))
+        else:
+            yield page
+
+
 def _pdf_cells(path):
     """PDF를 '표 칸' 단위로 읽는다.
 
@@ -245,7 +260,7 @@ def _pdf_cells(path):
     import pdfplumber
     out = []
     with pdfplumber.open(path) as pdf:
-        for page in pdf.pages:
+        for page in _halves(pdf.pages):
             cells = [c for t in page.find_tables() for c in t.cells if c]
             groups, loose = {}, []
             for ch in page.chars:
