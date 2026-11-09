@@ -111,6 +111,14 @@ def _hwp(path):
                         cur.append((pos, "\t")); j += 2
                     elif code < 32:
                         j += 16 if code in EXT_CTRL else 2
+                    elif 0xD800 <= code <= 0xDBFF:   # UTF-16 상위 대리 — 짝과 합쳐 한 글자로
+                        lo = struct.unpack_from("<H", body, j + 2)[0] if j + 3 < len(body) else 0
+                        if 0xDC00 <= lo <= 0xDFFF:
+                            cp = 0x10000 + ((code - 0xD800) << 10) + (lo - 0xDC00)
+                            cur.append((pos, chr(cp)))
+                        j += 4
+                    elif 0xDC00 <= code <= 0xDFFF:   # 짝 없는 하위 대리 — 버린다
+                        j += 2
                     else:
                         cur.append((pos, chr(code))); j += 2
             elif tag == PARA_CHAR_SHAPE and cur is not None:
