@@ -30,13 +30,17 @@ BLANKS = [
     ("06-9", "파생어", ()), ("06-10", "덧버선", ()), ("06-11", "덧-", ()), ("06-12", "버선", ()),
     ("06-13", "울-", ()), ("06-14", "-보", ()), ("06-15", "복합어", ()),
     ("07-1", "솔", ()), ("07-2", "나무", ()), ("07-3", "딸", ()), ("07-4", "-님", ()),
-    ("07-5", "-ㄹ", ("ㄹ",)),
+    ("07-5", "-ㄹ", ("ㄹ", "받침")),
     ("08-1", "댓글", ()), ("08-2", "홈페이지", ()), ("08-3", "소리책", ()),
-    ("09-1", "둘레", ()), ("09-2", "길", ()), ("09-3", "합성", ()), ("09-4", "누리", ()),
+    ("09-1", "둘레", ()), ("09-2", "길", ()), ("09-3", "합성", ("합성",)), ("09-4", "누리", ()),
     ("09-5", "접사", ("접미사",)), ("09-6", "접사", ("접미사",)),
     ("09-7", "앞부분", ("앞글자", "첫글자", "앞")), ("09-8", "뒷부분", ("뒷글자", "끝글자", "뒤")),
     ("10-1", "누리집", ()), ("10-2", "캠핑족", ()), ("10-3", "인강", ()), ("10-4", "라볶이", ()),
 ]
+# 06번 예시 칸: <보기>가 아닌 다른 단어라도 그 단어와 형태소 나눔이 서로 맞으면 정답
+# (교사 결정 2026-11-09). 단일어 칸은 교사가 확인한 단어만 인정한다.
+EXAMPLE_GROUPS = [("06-4", "06-5", "06-6"), ("06-10", "06-11", "06-12")]
+SINGLE_OK = {"06-2": ("밤", "밥")}
 # 순서가 바뀌어도 맞는 칸 묶음 (하늘, (꽃), (병) / (하늘), 꽃, 병, (지우-))
 UNORDERED = [("01-2", "01-3"), ("01-5", "01-6")]
 
@@ -77,6 +81,16 @@ def section02(text):
 
 LABELS = ("동그라미", "동그리미", "세모", "네모", "삼각형")   # △·○를 글로 쓴 경우
 MARKS = "△▲▵Δ○◯●ㅇOo⬆□■"
+# 02번 정답 모양 순서 — 실질 형태소(어근) △, 형식 형태소(접사) ○
+SHAPES = {"02-1": "△", "02-2": "△△", "02-3": "○△", "02-4": "△△", "02-5": "△△",
+          "02-6": "△△", "02-7": "△", "02-8": "○△", "02-9": "△○", "02-10": "△○"}
+_SHAPE_RE = re.compile(r"세모|삼각형|동그라미|동그리미|[△▲▵Δ⬆]|[○◯●ㅇOo]")
+
+
+def shapes(seg):
+    """행에 그린 △·○를 순서대로 '△○' 꼴로 (세모·동그라미처럼 글로 쓴 것 포함)."""
+    return "".join("○" if m in ("동그라미", "동그리미") or m in "○◯●ㅇOo" else "△"
+                   for m in _SHAPE_RE.findall(seg))
 
 
 def grade_splits(text):
@@ -111,8 +125,13 @@ def grade_splits(text):
             toks = toks[1:]
         shown = "+".join(toks)
         if not toks:
-            marked = any(m in seg for m in MARKS) or "|" in seg
-            out[key] = ["?", "△·○만 표시"] if marked else ["-", ""]
+            # 형태소를 나누어 쓰지 않고 △·○만 그린 행: 모양의 순서가 맞으면 정답
+            # (교사 결정 2026-11-09). 단어 하나에 모양 하나만 그린 경우는 순서가 맞지 않는다.
+            got = shapes(sec[a:b])
+            if got:
+                out[key] = ["O" if got == SHAPES[key] else "X", f"{got}(모양만)"]
+            else:
+                out[key] = ["-", ""]
         elif sorted(toks) == sorted(parts):
             out[key] = ["O", shown]
         elif len(parts) > 1 and toks == [word]:
@@ -145,12 +164,22 @@ def grade(path):
         ans_b = next(x[1] for x in BLANKS if x[0] == b)
         if {norm(vals[a]), norm(vals[b])} == {norm(ans_a), norm(ans_b)}:
             items[a], items[b] = ["O", vals[a]], ["O", vals[b]]
+    for whole, p1, p2 in EXAMPLE_GROUPS:      # 다른 예시 단어 + 맞는 형태소 나눔
+        ans = norm(next(x[1] for x in BLANKS if x[0] == whole))
+        w, a1, a2 = norm(vals[whole]), norm(vals[p1]), norm(vals[p2])
+        typo = len(w) == len(ans) and sum(x != y for x, y in zip(w, ans)) == 1   # 덧버섯 등
+        if a1 and a2 and w == a1 + a2 and w != ans and not typo:
+            for k in (whole, p1, p2):
+                items[k] = ["O", vals[k]]
+    for k, ok in SINGLE_OK.items():
+        if norm(vals[k]) in ok:
+            items[k] = ["O", vals[k]]
     items.update(grade_splits(text))
 
-    marks = [k for k, v in items.items() if v == ["?", "△·○만 표시"]]
+    marks = [k for k, v in items.items() if v[1].endswith("(모양만)")]
     if marks:
-        notes.append(f"02번 {len(marks)}칸은 형태소를 나누어 쓰지 않고 △·○만 표시 — "
-                     "판독 제외(등급 계산에서 뺌), 교사 확인")
+        notes.append(f"02번 {len(marks)}칸은 형태소를 나누어 쓰지 않고 △·○만 그림 — "
+                     "모양의 순서로 판정(교사 결정)")
     miss = [k for k, v in items.items() if v[0] == "?" and k not in marks]
     if miss:
         notes.append(f"미검출 {len(miss)}칸({', '.join(miss)}) — 교사 확인 권장")
