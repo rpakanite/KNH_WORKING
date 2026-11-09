@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """5단계 월말 결산 보고서(PDF 스펙 + Drive용 CSV)를 반별로 만든다.
 
-그 달에 4단계를 진행한 반·차시의 채점 결과만 모아 ① 기준별 등급 분포 합산,
+그 달의 반·차시 채점 결과만 모아 ① 기준별 등급 분포 합산,
 ② 반복되는 오류 패턴(4단계에서 이미 관찰된 내용), ③ 교사 전용 상위 10명 순위표를 싣는다.
 순위표는 월말 결산 전용이며 4·6단계에 인용하지 않는다(CLAUDE.md 5단계 2-주의).
 
-사용법:  python3 monthly_report.py <채점결과디렉터리> <출력디렉터리>
+월을 나누는 기준은 채점일이 아니라 수업·제출 시점이다(9월 결산 선례: 9월에 제출된
+「토의하기」를 10/13에 채점해 9월 결산에 넣음).
+
+사용법:  python3 monthly_report.py <연월 YYYYMM> <채점결과디렉터리> <출력디렉터리>
+         채점결과디렉터리에 차시별 채점기 출력({prefix}_{반}.json)이 있어야 한다.
 """
 import collections
 import csv
@@ -13,68 +17,80 @@ import json
 import pathlib
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from grade_touui import CRIT as TOUUI_CRIT  # noqa: E402
-
 CRITS = ["기준1", "기준2", "기준3", "기준4", "기준5"]
 BANDS = ["상", "중", "하", "확인불가"]
-POINT = {"상": 2, "중": 1, "하": 0, "확인불가": 0}
-MONTH = "2026년 9월"
-TAG = "202609"
 CLASSES = ["6반", "7반", "8반", "9반", "10반"]
 
-LESSONS = [
-    {"key": "주장하는 글 쓰기", "chasi": "대단원4-2_주장하는글쓰기_2~4차시",
-     "date": "2026-09-16",
-     "names": {"기준1": "쓰기 과정 이해", "기준2": "근거 자료 타당성 판단",
-               "기준3": "구성 단계 이해", "기준4": "주장·근거 파악", "기준5": "표현 의도·효과"}},
-    {"key": "토의하기", "chasi": "대단원1-2_토의하기", "date": "2026-10-13",
-     "names": {"기준1": "토의 주제·전개 과정 파악", "기준2": "모둠별 주장과 근거 파악",
-               "기준3": "의견 교환·조정 과정 파악", "기준4": "사회자의 역할 이해",
-               "기준5": "토의 태도 구별"}},
-]
+# 달마다 바뀌는 것(대상 차시, 작성일, 반별 제외 사유)은 여기에만 둔다.
+MONTHS = {
+    "202609": {
+        "month": "2026년 9월", "written": "2026-10-13",
+        "excluded": {"7반": "교사 지시로 제외"},
+        "lessons": [
+            {"key": "주장하는 글 쓰기", "chasi": "대단원4-2_주장하는글쓰기_2~4차시",
+             "scored": "scored.json"},
+            {"key": "토의하기", "chasi": "대단원1-2_토의하기", "prefix": "touui"},
+        ]},
+    "202610": {
+        "month": "2026년 10월", "written": "2026-11-10",
+        "excluded": {},
+        "lessons": [
+            {"key": "어휘의 양상", "chasi": "대단원3-2_어휘의양상", "prefix": "eohwi"},
+            {"key": "단어의 짜임", "chasi": "대단원3-1_단어의짜임", "prefix": "danuh"},
+        ]},
+}
 NAMES = json.loads(pathlib.Path(".claude/cache/명렬표/명렬표.json").read_text(encoding="utf-8"))
 
 
 def josa(word, pair):
     """받침 유무에 따라 조사를 고른다 — pair 예: ("은", "는"), ("이라고", "라고")."""
     last = word.strip()[-1] if word.strip() else ""
+    if last.isdigit():                          # 숫자는 읽는 소리로: 영·일·삼·육·칠·팔은 받침 있음
+        return pair[0] if last in "013678" else pair[1]
     has = "가" <= last <= "힣" and (ord(last) - 0xAC00) % 28
     return pair[0] if has else pair[1]
 
 
-def load_month(src):
+def load_month(cfg, src):
     """{반: {차시: {학번: 등급dict}}} 형태로 그 달 채점 결과를 모은다."""
     data = {c: {} for c in CLASSES}
-    scored = json.loads((src / "scored.json").read_text(encoding="utf-8"))
-    for cls, students in scored.items():
-        data[cls]["주장하는 글 쓰기"] = {
-            sid.split("_")[0]: {c: g[c] for c in CRITS} for sid, g in students.items()}
-    for cls in CLASSES:
-        f = src / f"touui_{cls}.json"
-        if not f.exists():
+    for les in cfg["lessons"]:
+        if "scored" in les:                       # 9월 「주장하는 글 쓰기」: 반별로 묶인 한 파일
+            scored = json.loads((src / les["scored"]).read_text(encoding="utf-8"))
+            for cls, students in scored.items():
+                data[cls][les["key"]] = {sid.split("_")[0]: {c: g[c] for c in CRITS}
+                                         for sid, g in students.items()}
             continue
-        g = json.loads(f.read_text(encoding="utf-8"))
-        data[cls]["토의하기"] = {sid.split("_")[0]: {c: v[c] for c in CRITS}
-                               for sid, v in g.items() if "items" in v}
+        for cls in CLASSES:
+            f = src / f"{les['prefix']}_{cls}.json"
+            if not f.exists():
+                continue
+            g = json.loads(f.read_text(encoding="utf-8"))
+            data[cls][les["key"]] = {sid.split("_")[0]: {c: v[c] for c in CRITS}
+                                     for sid, v in g.items() if "items" in v}
     return data
 
 
-def wrong_items(src, cls):
-    """토의하기에서 그 반이 많이 틀린 칸 — 4단계에서 이미 관찰된 사실만 옮긴다."""
-    f = src / f"touui_{cls}.json"
-    if not f.exists():
-        return []
-    g = json.loads(f.read_text(encoding="utf-8"))
-    cnt, pick = collections.Counter(), collections.defaultdict(collections.Counter)
-    for v in g.values():
-        for k, val in v.get("items", {}).items():
-            if val[0] == "X":
-                cnt[k] += 1
-                pick[k][val[1].strip()] += 1
-    n = len(g)
-    return [(k, c, pick[k].most_common(1)[0][0]) for k, c in cnt.most_common(3)
-            if c >= max(3, n // 4)]
+def wrong_items(cfg, src, cls):
+    """그 반이 많이 틀린 칸 — 4단계에서 이미 관찰된 사실만 옮긴다. [(차시, 칸, 인원, 흔한 답)]"""
+    out = []
+    for les in cfg["lessons"]:
+        f = src / f"{les.get('prefix', '')}_{cls}.json"
+        if "prefix" not in les or not f.exists():
+            continue
+        g = json.loads(f.read_text(encoding="utf-8"))
+        cnt, pick = collections.Counter(), collections.defaultdict(collections.Counter)
+        for v in g.values():
+            for k, val in v.get("items", {}).items():
+                if val[0] == "X":
+                    cnt[k] += 1
+                    pick[k][val[1].strip()] += 1
+        n = len(g)
+        for k, c in cnt.most_common(3):
+            if c >= max(3, n // 4):
+                ans, m = pick[k].most_common(1)[0]
+                out.append((les["key"], k, c, ans if m >= 2 else None))
+    return out
 
 
 def ranking(cls, lessons):
@@ -105,8 +121,10 @@ def ranking(cls, lessons):
     return out, len(rows)
 
 
-def build(cls, lessons, src, out_dir):
+def build(cfg, tag, cls, lessons, src, out_dir):
+    month, written = cfg["month"], cfg["written"]
     taught = [k for k in lessons if lessons[k]]
+    enrolled = sum(1 for v in NAMES[cls].values() if v)
     roll = {c: collections.Counter() for c in CRITS}
     for k in taught:
         for g in lessons[k].values():
@@ -123,37 +141,42 @@ def build(cls, lessons, src, out_dir):
     qual = []
     for k in taught:
         n = len(lessons[k])
+        if n < enrolled / 2:
+            qual.append(f"<b>{k}</b>: 재적 {enrolled}명 중 {n}명만 제출해, 아래 분포는 "
+                        f"제출한 학생의 결과일 뿐 반 전체의 경향으로 읽기 어렵다.")
         low = [c for c in CRITS if sum(1 for g in lessons[k].values() if g[c] == "하") >= max(2, n // 5)]
         if low:
             qual.append(f"<b>{k}</b>: {', '.join(low)}에서 '하'가 상대적으로 많았다.")
         hi = [c for c in CRITS if sum(1 for g in lessons[k].values() if g[c] == "상") >= n * 0.8]
-        if hi:
+        if hi and n >= 3:
             qual.append(f"<b>{k}</b>: {', '.join(hi)}{josa(hi[-1], ('은', '는'))} "
-                        f"대부분의 학생이 '상'에 도달했다.")
-    if len(taught) < len(LESSONS):
-        missing = [l["key"] for l in LESSONS if l["key"] not in taught]
+                        f"제출한 학생 대부분이 '상'에 도달했다.")
+    missing = [les["key"] for les in cfg["lessons"] if les["key"] not in taught]
+    if missing:
+        why = cfg["excluded"].get(cls)
         qual.append(f"<b>{cls}</b>{josa(cls, ('은', '는'))} {', '.join(missing)} "
-                    f"제출물이 한 건도 없어"
-                    f"(교사 지시로 제외) 이 달 대상 차시가 {len(taught)}개다.")
-    for key, cnt, ans in wrong_items(src, cls):
-        qual.append(f"<b>토의하기</b>: {key} 칸을 {cnt}명이 틀렸고 대부분 "
-                    f"'{ans}'{josa(ans, ('이라고', '라고'))} 적었다. "
+                    f"제출물이 한 건도 없어" + (f"({why})" if why else "")
+                    + f" 이 달 대상 차시가 {len(taught)}개다.")
+    for les, key, cnt, ans in wrong_items(cfg, src, cls):
+        said = (f" 대부분 '{ans}'{josa(ans, ('이라고', '라고'))} 적었다." if ans
+                else " 답은 제각각이었다.")
+        qual.append(f"<b>{les}</b>: {key} 칸을 {cnt}명이 틀렸고{said} "
                     f"반복되는 오류 패턴으로, 다음 차시 도입에서 짚어 줄 지점이다.")
 
+    chasi = {les["key"]: les["chasi"] for les in cfg["lessons"]}
     spec = {
-        "title": f"{cls} {MONTH} 월말 결산 보고서",
-        "subtitle": f"대상 차시 {len(taught)}개 · 작성일 2026-10-13 · 교사 참고용 내부 자료",
-        "meta": [["대상 차시", " / ".join(f"{k}({next(l['chasi'] for l in LESSONS if l['key'] == k)})"
-                                        for k in taught)],
-                 ["집계 범위", f"{MONTH}에 4단계를 진행한 반·차시의 채점 결과만 집계했다."],
+        "title": f"{cls} {month} 월말 결산 보고서",
+        "subtitle": f"대상 차시 {len(taught)}개 · 작성일 {written} · 교사 참고용 내부 자료",
+        "meta": [["대상 차시", " / ".join(f"{k}({chasi[k]})" for k in taught) or "없음"],
+                 ["집계 범위", f"{month}에 수업·제출한 반·차시의 채점 결과만 집계했다."],
                  ["근거 자료", ".claude/cache/results/ 의 학생별 채점 결과(제출자 기준)"]],
         "sections": [
             {"heading": "1. 차시별 처리 현황과 등급 합계", "blocks": [
                 {"type": "table", "widths": [2.2, 1.0, 0.9, 0.9, 0.9, 1.1],
                  "header": ["차시", "제출 인원", "상", "중", "하", "확인불가"],
                  "rows": per},
-                {"type": "para", "text": "상·중·하 칸의 숫자는 <b>학생 수가 아니라 기준 판정 건수</b>"
-                                         "(학생 수 × 기준 5개)이다."}]},
+                {"type": "para", "text": f"재적 {enrolled}명. 상·중·하 칸의 숫자는 "
+                                         "<b>학생 수가 아니라 기준 판정 건수</b>(학생 수 × 기준 5개)이다."}]},
             {"heading": "2. 기준별 등급 분포 합산", "blocks": [
                 {"type": "table", "widths": [1.6, 1.2, 1.2, 1.2, 1.4],
                  "header": ["분석 기준", "상", "중", "하", "확인불가"],
@@ -186,11 +209,11 @@ def build(cls, lessons, src, out_dir):
     out_dir = pathlib.Path(out_dir)
     (out_dir / f"spec_monthly_{cls}.json").write_text(json.dumps(spec, ensure_ascii=False),
                                                       encoding="utf-8")
-    csv_path = out_dir / f"{cls}_{TAG}.csv"
+    csv_path = out_dir / f"{cls}_{tag}.csv"
     with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
-        w.writerow([f"{cls} {MONTH} 월말 결산 보고서"])
-        w.writerow(["대상 차시", " / ".join(taught), "작성일", "2026-10-13"])
+        w.writerow([f"{cls} {month} 월말 결산 보고서"])
+        w.writerow(["대상 차시", " / ".join(taught), "작성일", written, "재적", f"{enrolled}명"])
         w.writerow([])
         w.writerow(["[차시별 처리 현황과 등급 합계]"])
         w.writerow(["차시", "제출 인원", "상", "중", "하", "확인불가"])
@@ -214,8 +237,9 @@ def build(cls, lessons, src, out_dir):
 
 
 if __name__ == "__main__":
-    src, dst = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-    data = load_month(src)
+    tag, src, dst = sys.argv[1], pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+    cfg = MONTHS[tag]
+    data = load_month(cfg, src)
     for cls in CLASSES:
-        p = build(cls, data[cls], src, dst)
+        p = build(cfg, tag, cls, data[cls], src, dst)
         print(f"{cls}: {p.name} ({', '.join(k for k in data[cls] if data[cls][k])})")
